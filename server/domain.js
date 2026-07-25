@@ -82,6 +82,79 @@ export function isExceptionStatus(status) {
   return Object.prototype.hasOwnProperty.call(EXCEPTION_RULES, status);
 }
 
+// --- Miller Heiman "Blue Sheet" (Strategic Selling) vocabulary --------------
+// Fields that structure a strategic-selling analysis for a complex 4PL deal.
+
+// The four buying-influence roles every complex sale has.
+export const BUYING_INFLUENCE_ROLES = [
+  { key: 'economic', label: 'Economic Buyer', hint: 'Final approval; controls budget; can say yes when others say no.' },
+  { key: 'user', label: 'User Buyer', hint: 'Judges impact on their own job; will use / supervise use of the service.' },
+  { key: 'technical', label: 'Technical Buyer', hint: 'Screens out on specs/compliance; gatekeeper; can say no, not yes.' },
+  { key: 'coach', label: 'Coach', hint: 'Guides you to the win; wants your solution; gives/validates information.' },
+];
+
+// How receptive each buying influence is to change right now.
+export const BUYING_MODES = [
+  { key: 'growth', label: 'Growth', hint: 'Wants more/better; open to change.' },
+  { key: 'trouble', label: 'Trouble', hint: 'Facing a problem; urgent to fix the gap.' },
+  { key: 'even-keel', label: 'Even Keel', hint: 'No perceived gap; hard to move.' },
+  { key: 'overconfident', label: 'Overconfident', hint: 'Believes reality is better than it is.' },
+];
+
+// Rating: how each buyer feels about you / your solution (-5 … +5 collapsed to bands).
+export const BUYING_RATINGS = [
+  { key: 'enthusiastic', label: 'Enthusiastic Advocate', score: 5 },
+  { key: 'supporter', label: 'Supporter', score: 3 },
+  { key: 'neutral', label: 'Neutral', score: 0 },
+  { key: 'non-supporter', label: 'Non-supporter', score: -3 },
+  { key: 'anti', label: 'Anti', score: -5 },
+];
+
+export const INFLUENCE_LEVELS = ['high', 'medium', 'low'];
+
+// Where the opportunity sits in the strategic-selling funnel.
+export const FUNNEL_POSITIONS = [
+  { key: 'universe', label: 'Universe' },
+  { key: 'above-funnel', label: 'Above the Funnel' },
+  { key: 'in-funnel', label: 'In the Funnel' },
+  { key: 'best-few', label: 'Best Few' },
+];
+
+export const ICP_FIT = ['strong', 'moderate', 'weak'];
+
+// Competitive posture on the deal.
+export const COMPETITION_TYPES = ['direct', 'indirect', 'status-quo', 'no-decision', 'internal'];
+
+// An empty Blue Sheet, used when creating deals so the shape is always present.
+export function emptyBlueSheet() {
+  return {
+    sso: '',                    // Single Sales Objective
+    funnelPosition: 'in-funnel',
+    icpFit: 'moderate',
+    buyingInfluences: [],       // [{ id, name, title, role, rating, mode, influence, notes }]
+    redFlags: [],               // [string]
+    strengths: [],              // strengths to leverage — [string]
+    competition: [],            // [{ type, name, notes }]
+    winResults: [],             // [{ influence, win, result }]
+    actionPlan: [],             // [{ id, action, owner, dueDate, status }]
+    bestActionCommitment: '',
+  };
+}
+
+// --- Account document library & action register -----------------------------
+export const DOCUMENT_TYPES = [
+  { key: 'rate-card', label: 'Rate Card' },
+  { key: 'agreement', label: 'Agreement' },
+  { key: 'qbr', label: 'QBR Deck' },
+  { key: 'monthly-deck', label: 'Monthly Deck' },
+  { key: 'other', label: 'Other' },
+];
+
+export const DOCUMENT_STATUSES = ['draft', 'active', 'signed', 'shared', 'scheduled', 'expired', 'superseded'];
+
+export const ACTION_STATUSES = ['open', 'in-progress', 'blocked', 'done'];
+export const ACTION_SOURCES = ['qbr', 'monthly-deck', 'rate-review', 'manual'];
+
 export function stageMeta(key) {
   return DEAL_STAGES.find((s) => s.key === key);
 }

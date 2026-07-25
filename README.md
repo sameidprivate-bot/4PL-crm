@@ -19,8 +19,8 @@ the exceptions already triaged.
 |---|---|
 | **efmAPP ingestion** | `POST /api/events/efmapp` accepts status milestones; exceptions auto-create linked, prioritised cases and update the shipment timeline. |
 | **Case management** | Full CS desk: priority, category, status, assignee, SLA tracking (with breach detection), notes and an activity timeline. |
-| **Sales pipeline** | Drag-and-drop Kanban across stages with weighted forecast (stage × probability). |
-| **Account management** | 360° account view — health/tier, contacts, open cases, deals, shipments and a logged interaction history. |
+| **Sales pipeline** | Drag-and-drop Kanban across stages with weighted forecast, plus a **Miller Heiman "Blue Sheet"** (Strategic Selling) on every deal. |
+| **Account management** | 360° account view — health/tier, contacts, cases, deals, shipments, a **document library** (rate cards, agreements, QBRs, monthly decks) and an **action register**. |
 | **Shipments** | Consignment register with live status, ETA and full efmAPP event timeline per shipment. |
 | **Dashboard** | KPIs (open cases, SLA breaches, exceptions today, pipeline value…), SLA watch-list and a live event feed. |
 | **Dual-brand** | Everything filters by EFM / AFS from the sidebar. |
@@ -86,6 +86,42 @@ failed-delivery · lost · returned`.
 | `delayed` | delay | **medium** |
 
 SLA response targets: urgent 2h · high 4h · medium 12h · low 24h.
+
+---
+
+## Sales pipeline — Miller Heiman Blue Sheet
+
+Every deal carries a **Strategic Selling Blue Sheet**, editable in the deal drawer:
+
+- **Single Sales Objective (SSO)** — what, how much, by when
+- **Funnel position** (Universe → Above the Funnel → In the Funnel → Best Few) and **ideal-customer fit**
+- **Buying influences** — Economic / User / Technical / Coach, each with a **rating**
+  (Enthusiastic → Anti), a **response mode** (Growth / Trouble / Even Keel / Overconfident)
+  and **degree of influence**
+- **Red flags**, **strengths to leverage**, **competition** (direct / indirect / status-quo / no-decision)
+- **Win-results** (personal win + business result per buyer)
+- **Action plan** (action / owner / due / status) and a **best-action commitment**
+
+A **plan-strength score** (0–100) is derived from Blue Sheet completeness and shown on
+each pipeline card so reps can see which deals still need strategic work.
+
+`GET /api/deals/:id` returns the full deal + Blue Sheet; `PUT /api/deals/:id/bluesheet`
+saves it.
+
+## Account management — documents & actions
+
+Each account keeps a **document library** and an **action register**:
+
+- **Documents** — `rate-card`, `agreement`, `qbr`, `monthly-deck` (and `other`), each with
+  period, effective/expiry dates, owner, status, version, optional value and a link.
+  Agreements expiring within 60 days surface on the dashboard.
+- **Actions** — items captured from QBRs / monthly reviews / rate reviews, with owner,
+  due date (overdue flagged), status and source. Toggle done inline.
+
+```
+GET/POST   /api/accounts/:id/documents      PATCH/DELETE /api/documents/:id
+GET/POST   /api/accounts/:id/actions        PATCH        /api/actions/:id
+```
 
 ---
 

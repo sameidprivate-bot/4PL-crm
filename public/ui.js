@@ -43,6 +43,16 @@ export function titleCase(s) {
   return String(s).replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Escape a value for safe use inside a double-quoted HTML attribute.
+export function escAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// Escape text for safe use in HTML body content.
+export function escHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function badge(text, cls = 'b-slate') {
   return `<span class="badge ${cls}">${text}</span>`;
 }
@@ -113,6 +123,26 @@ const EVENT_ICONS = {
 };
 export function eventIcon(status) {
   return EVENT_ICONS[status] || { icon: '•', bg: 'var(--slate-bg)', fg: 'var(--slate)' };
+}
+
+const DOC_META = {
+  'rate-card': { icon: '💲', cls: 'b-green', label: 'Rate Card' },
+  agreement: { icon: '📄', cls: 'b-blue', label: 'Agreement' },
+  qbr: { icon: '📊', cls: 'b-violet', label: 'QBR' },
+  'monthly-deck': { icon: '🗓️', cls: 'b-amber', label: 'Monthly Deck' },
+  other: { icon: '📎', cls: 'b-slate', label: 'Other' },
+};
+export function docMeta(type) {
+  return DOC_META[type] || DOC_META.other;
+}
+export function docTypeBadge(type) {
+  const m = docMeta(type);
+  return `<span class="badge ${m.cls}">${m.icon} ${m.label}</span>`;
+}
+
+const ACTION_CLS = { open: 'b-blue', 'in-progress': 'b-amber', blocked: 'b-red', done: 'b-green' };
+export function actionStatusBadge(s) {
+  return `<span class="badge ${ACTION_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
 }
 
 let toastId = 0;

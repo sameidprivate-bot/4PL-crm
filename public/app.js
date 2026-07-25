@@ -3,7 +3,7 @@ import { api } from './api.js';
 import {
   el, fmtMoney, fmtDate, fmtDateTime, timeAgo, badge, brandChip,
   priorityBadge, statusBadge, slaBadge, healthBadge, shipmentStatusBadge,
-  eventIcon, titleCase, toast,
+  eventIcon, titleCase, toast, escAttr, escHtml, docTypeBadge, docMeta, actionStatusBadge,
 } from './ui.js';
 
 const state = {
@@ -120,6 +120,8 @@ async function renderDashboard(host) {
     { label: 'Open pipeline', value: fmtMoney(k.openPipelineValue), sub: `${fmtMoney(k.weightedPipelineValue)} weighted` },
     { label: 'Won (closed)', value: fmtMoney(k.wonValue), sub: 'this dataset', cls: 'kpi--good' },
     { label: 'Accounts', value: k.accounts, sub: `${k.atRiskAccounts} at-risk`, cls: k.atRiskAccounts ? 'kpi--alert' : '' },
+    { label: 'Account actions', value: k.openActions ?? 0, sub: `${k.overdueActions ?? 0} overdue`, cls: k.overdueActions ? 'kpi--alert' : '' },
+    { label: 'Agreements expiring', value: k.expiringAgreements ?? 0, sub: 'within 60 days', cls: k.expiringAgreements ? 'kpi--alert' : '' },
   ];
 
   const maxPri = Math.max(1, ...Object.values(d.byPriority));
@@ -456,51 +458,210 @@ async function renderPipeline(host) {
 }
 
 function dealCard(d) {
+  const scoreColor = d.blueSheetScore >= 70 ? 'var(--green)' : d.blueSheetScore >= 40 ? 'var(--amber)' : 'var(--red)';
+  const showBs = !['won', 'lost'].includes(d.stage);
   return `<div class="deal-card" data-deal="${d.id}">
-    <div class="deal-card__name">${d.name}</div>
+    <div class="deal-card__name">${escHtml(d.name)}</div>
     <div class="deal-card__meta">
-      <span>${d.accountName || 'Prospect'} ${brandChip(d.brand)}</span>
+      <span>${escHtml(d.accountName || 'Prospect')} ${brandChip(d.brand)}</span>
       <span class="deal-card__val">${fmtMoney(d.value)}</span>
     </div>
     <div class="probbar"><i style="width:${d.probability}%"></i></div>
+    ${showBs ? `<div class="deal-card__bs" title="Blue Sheet strength">
+      <span class="bs-dot" style="background:${scoreColor}"></span> Blue Sheet ${d.blueSheetScore}%
+      ${d.redFlagCount ? `<span class="bs-flags">⚑ ${d.redFlagCount}</span>` : ''}
+    </div>` : ''}
   </div>`;
 }
 
 async function openDealDrawer(id) {
-  const deals = await api.deals(bq());
-  const d = deals.find((x) => x.id === id);
+  const d = await api.deal(id);
   if (!d) return;
   const m = state.meta;
+  const bs = d.blueSheet || {};
+  const scoreColor = d.blueSheetScore >= 70 ? 'var(--green)' : d.blueSheetScore >= 40 ? 'var(--amber)' : 'var(--red)';
+
+  const enumOpts = (list, sel) => list.map((v) => {
+    const key = typeof v === 'string' ? v : v.key;
+    const label = typeof v === 'string' ? titleCase(v) : v.label;
+    return `<option value="${key}" ${key === sel ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+
   openDrawer(`
     <div class="drawer__head">
       <button class="drawer__close" data-close>×</button>
-      <div class="drawer__eyebrow">${d.id} · ${brandChip(d.brand)}</div>
-      <div class="drawer__title">${d.name}</div>
+      <div class="drawer__eyebrow">${d.id} · ${brandChip(d.brand)} · ${d.serviceType}</div>
+      <div class="drawer__title">${escHtml(d.name)}</div>
+      <div class="chips" style="margin-top:10px">
+        ${badge(m.dealStages.find((s) => s.key === d.stage)?.label || d.stage, 'b-blue')}
+        <span class="badge b-slate">${fmtMoney(d.value)}</span>
+        <span class="badge b-violet">Weighted ${fmtMoney(d.weightedValue)}</span>
+        ${d.redFlagCount ? badge(`${d.redFlagCount} red flag${d.redFlagCount > 1 ? 's' : ''}`, 'b-red') : ''}
+      </div>
     </div>
     <div class="drawer__body">
       <div class="drawer__section">
+        <div class="form-row">
+          <label class="field"><span>Stage</span><select id="stageSel">${m.dealStages.map((s) => `<option value="${s.key}" ${s.key === d.stage ? 'selected' : ''}>${s.label} (${s.probability}%)</option>`).join('')}</select></label>
+          <label class="field"><span>Value (USD)</span><input id="valInput" type="number" value="${d.value}" /></label>
+        </div>
         <dl class="dl">
-          <dt>Account</dt><dd>${d.accountName || d.prospectName || '—'}</dd>
-          <dt>Value</dt><dd class="cell-strong">${fmtMoney(d.value)}</dd>
-          <dt>Weighted</dt><dd>${fmtMoney(d.weightedValue)} (${d.probability}%)</dd>
-          <dt>Service</dt><dd>${d.serviceType}</dd>
+          <dt>Account</dt><dd>${escHtml(d.accountName || d.prospectName || '—')}</dd>
           <dt>Owner</dt><dd>${d.ownerName || '—'}</dd>
           <dt>Source</dt><dd>${d.source || '—'}</dd>
           <dt>Expected close</dt><dd>${d.expectedCloseAt ? fmtDate(d.expectedCloseAt) : '—'}</dd>
-          ${d.lostReason ? `<dt>Lost reason</dt><dd>${d.lostReason}</dd>` : ''}
         </dl>
+        <button class="btn btn--primary btn--sm" id="saveDeal" style="margin-top:6px">Save stage &amp; value</button>
       </div>
-      <div class="drawer__section">
-        <h4>Move stage</h4>
-        <label class="field"><select id="stageSel">${m.dealStages.map((s) => `<option value="${s.key}" ${s.key === d.stage ? 'selected' : ''}>${s.label} (${s.probability}%)</option>`).join('')}</select></label>
-        <label class="field"><span>Value</span><input id="valInput" type="number" value="${d.value}" /></label>
-        <button class="btn btn--primary btn--sm" id="saveDeal">Save</button>
+
+      <div class="drawer__section" style="border-top:1px solid var(--border);padding-top:18px">
+        <div class="section-head" style="margin:0 0 6px">
+          <h4 style="margin:0">🔵 Miller Heiman Blue Sheet</h4>
+          <span class="muted">Strategic Selling</span>
+        </div>
+        <div class="meter__row" style="margin-bottom:14px">
+          <span class="meter__label" style="width:auto">Plan strength</span>
+          <span class="meter__track"><span class="meter__fill" style="width:${d.blueSheetScore}%;background:${scoreColor}"></span></span>
+          <span class="meter__num">${d.blueSheetScore}</span>
+        </div>
+
+        <label class="field"><span>Single Sales Objective (SSO)</span><textarea id="bs-sso" rows="2" placeholder="What, how much, by when — the specific objective for this sale">${escHtml(bs.sso || '')}</textarea></label>
+        <div class="form-row">
+          <label class="field"><span>Funnel position</span><select id="bs-funnel">${enumOpts(m.funnelPositions, bs.funnelPosition)}</select></label>
+          <label class="field"><span>Ideal-customer fit</span><select id="bs-icp">${enumOpts(m.icpFit, bs.icpFit)}</select></label>
+        </div>
+
+        <h4 style="margin-top:8px">Buying influences</h4>
+        <div class="table-wrap"><table class="data mini" id="bs-influences">
+          <thead><tr><th>Name / title</th><th>Role</th><th>Rating</th><th>Mode</th><th>Infl.</th><th></th></tr></thead>
+          <tbody>${(bs.buyingInfluences || []).map((b) => influenceRow(b, m)).join('')}</tbody>
+        </table></div>
+        <button class="btn btn--sm" id="add-influence">+ Add buying influence</button>
+
+        <h4 style="margin-top:18px">Red flags <span class="muted">(one per line)</span></h4>
+        <textarea id="bs-redflags" rows="3" placeholder="Missing information, uncontacted buyers, budget uncertainty…">${escHtml((bs.redFlags || []).join('\n'))}</textarea>
+
+        <h4 style="margin-top:14px">Strengths to leverage <span class="muted">(one per line)</span></h4>
+        <textarea id="bs-strengths" rows="3">${escHtml((bs.strengths || []).join('\n'))}</textarea>
+
+        <h4 style="margin-top:14px">Competition</h4>
+        <div class="table-wrap"><table class="data mini" id="bs-competition">
+          <thead><tr><th>Type</th><th>Who</th><th>Notes</th><th></th></tr></thead>
+          <tbody>${(bs.competition || []).map((c) => competitionRow(c, m)).join('')}</tbody>
+        </table></div>
+        <button class="btn btn--sm" id="add-competition">+ Add competitor</button>
+
+        <h4 style="margin-top:18px">Win-results</h4>
+        <div class="table-wrap"><table class="data mini" id="bs-winresults">
+          <thead><tr><th>Buyer</th><th>Win (personal)</th><th>Result (business)</th><th></th></tr></thead>
+          <tbody>${(bs.winResults || []).map(winResultRow).join('')}</tbody>
+        </table></div>
+        <button class="btn btn--sm" id="add-winresult">+ Add win-result</button>
+
+        <h4 style="margin-top:18px">Action plan</h4>
+        <div class="table-wrap"><table class="data mini" id="bs-actions">
+          <thead><tr><th>Action</th><th>Owner</th><th>Due</th><th>Status</th><th></th></tr></thead>
+          <tbody>${(bs.actionPlan || []).map((a) => bsActionRow(a, m)).join('')}</tbody>
+        </table></div>
+        <button class="btn btn--sm" id="add-bsaction">+ Add action</button>
+
+        <label class="field" style="margin-top:16px"><span>Best action commitment</span><textarea id="bs-commitment" rows="2" placeholder="The single most important next step to advance the sale">${escHtml(bs.bestActionCommitment || '')}</textarea></label>
+
+        <button class="btn btn--primary" id="saveBlueSheet" style="margin-top:6px">Save Blue Sheet</button>
       </div>
     </div>`);
+
   drawer.querySelector('[data-close]').onclick = closeDrawer;
   drawer.querySelector('#saveDeal').onclick = async () => {
     await api.updateDeal(id, { stage: val('stageSel'), value: Number(val('valInput')) });
     toast('Deal updated', '', 'success'); closeDrawer(); router();
+  };
+
+  // Repeatable-row add buttons.
+  drawer.querySelector('#add-influence').onclick = () =>
+    drawer.querySelector('#bs-influences tbody').insertAdjacentHTML('beforeend', influenceRow({}, m));
+  drawer.querySelector('#add-competition').onclick = () =>
+    drawer.querySelector('#bs-competition tbody').insertAdjacentHTML('beforeend', competitionRow({}, m));
+  drawer.querySelector('#add-winresult').onclick = () =>
+    drawer.querySelector('#bs-winresults tbody').insertAdjacentHTML('beforeend', winResultRow({}));
+  drawer.querySelector('#add-bsaction').onclick = () =>
+    drawer.querySelector('#bs-actions tbody').insertAdjacentHTML('beforeend', bsActionRow({}, m));
+  // Row removal (event delegation).
+  drawer.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-rm-row]');
+    if (rm) rm.closest('tr').remove();
+  });
+
+  drawer.querySelector('#saveBlueSheet').onclick = async () => {
+    const blueSheet = collectBlueSheet();
+    await api.saveBlueSheet(id, blueSheet);
+    toast('Blue Sheet saved', d.id, 'success');
+    openDealDrawer(id);
+  };
+}
+
+// --- Blue Sheet row templates + collectors ----------------------------------
+function influenceRow(b = {}, m) {
+  const rid = b.id || `BI-${Math.random().toString(36).slice(2, 7)}`;
+  const sel = (list, v) => list.map((o) => `<option value="${o.key}" ${o.key === v ? 'selected' : ''}>${o.label}</option>`).join('');
+  const selPlain = (list, v) => list.map((o) => `<option value="${o}" ${o === v ? 'selected' : ''}>${titleCase(o)}</option>`).join('');
+  return `<tr data-bi-row data-id="${rid}">
+    <td><input data-f="name" value="${escAttr(b.name)}" placeholder="Name" style="margin-bottom:4px" /><input data-f="title" value="${escAttr(b.title)}" placeholder="Title" /></td>
+    <td><select data-f="role">${sel(m.buyingInfluenceRoles, b.role)}</select></td>
+    <td><select data-f="rating">${sel(m.buyingRatings, b.rating || 'neutral')}</select></td>
+    <td><select data-f="mode">${sel(m.buyingModes, b.mode || 'even-keel')}</select></td>
+    <td><select data-f="influence">${selPlain(m.influenceLevels, b.influence || 'medium')}</select></td>
+    <td><button class="btn btn--sm btn--danger" data-rm-row title="Remove">✕</button></td>
+  </tr>`;
+}
+function competitionRow(c = {}, m) {
+  const selPlain = (list, v) => list.map((o) => `<option value="${o}" ${o === v ? 'selected' : ''}>${titleCase(o)}</option>`).join('');
+  return `<tr data-comp-row>
+    <td><select data-f="type">${selPlain(m.competitionTypes, c.type || 'direct')}</select></td>
+    <td><input data-f="name" value="${escAttr(c.name)}" placeholder="Competitor" /></td>
+    <td><input data-f="notes" value="${escAttr(c.notes)}" placeholder="Notes" /></td>
+    <td><button class="btn btn--sm btn--danger" data-rm-row>✕</button></td>
+  </tr>`;
+}
+function winResultRow(w = {}) {
+  return `<tr data-wr-row>
+    <td><input data-f="influence" value="${escAttr(w.influence)}" placeholder="Buyer" /></td>
+    <td><input data-f="win" value="${escAttr(w.win)}" placeholder="Personal win" /></td>
+    <td><input data-f="result" value="${escAttr(w.result)}" placeholder="Business result" /></td>
+    <td><button class="btn btn--sm btn--danger" data-rm-row>✕</button></td>
+  </tr>`;
+}
+function bsActionRow(a = {}, m) {
+  const selPlain = (list, v) => list.map((o) => `<option value="${o}" ${o === v ? 'selected' : ''}>${titleCase(o)}</option>`).join('');
+  const due = a.dueDate ? a.dueDate.slice(0, 10) : '';
+  return `<tr data-ap-row>
+    <td><input data-f="action" value="${escAttr(a.action)}" placeholder="Action" /></td>
+    <td><input data-f="owner" value="${escAttr(a.owner)}" placeholder="Owner" /></td>
+    <td><input data-f="dueDate" type="date" value="${due}" /></td>
+    <td><select data-f="status">${selPlain(m.actionStatuses, a.status || 'open')}</select></td>
+    <td><button class="btn btn--sm btn--danger" data-rm-row>✕</button></td>
+  </tr>`;
+}
+
+function readRow(tr) {
+  const o = {};
+  tr.querySelectorAll('[data-f]').forEach((n) => { o[n.dataset.f] = n.value.trim(); });
+  return o;
+}
+function collectBlueSheet() {
+  const lines = (id) => val(id).split('\n').map((s) => s.trim()).filter(Boolean);
+  const rows = (sel) => [...drawer.querySelectorAll(sel)];
+  return {
+    sso: val('bs-sso'),
+    funnelPosition: val('bs-funnel'),
+    icpFit: val('bs-icp'),
+    buyingInfluences: rows('#bs-influences tbody tr').map((tr) => ({ id: tr.dataset.id, ...readRow(tr) })).filter((b) => b.name),
+    redFlags: lines('bs-redflags'),
+    strengths: lines('bs-strengths'),
+    competition: rows('#bs-competition tbody tr').map(readRow).filter((c) => c.name),
+    winResults: rows('#bs-winresults tbody tr').map(readRow).filter((w) => w.win || w.result),
+    actionPlan: rows('#bs-actions tbody tr').map(readRow).filter((a) => a.action),
+    bestActionCommitment: val('bs-commitment'),
   };
 }
 
@@ -559,10 +720,11 @@ function accountCard(a) {
     </div>
     <div class="chips" style="margin:12px 0 10px">${healthBadge(a.health)} ${badge(titleCase(a.tier), 'b-slate')}</div>
     <div class="health-strip"><i style="display:block;height:100%;width:100%;background:${healthColor}"></i></div>
-    <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--text-muted)">
+    <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--text-muted);flex-wrap:wrap;gap:4px">
       <span><b style="color:var(--text)">${a.openCases}</b> cases</span>
       <span><b style="color:var(--text)">${a.openDeals}</b> deals</span>
-      <span><b style="color:var(--text)">${a.activeShipments}</b> shipments</span>
+      <span><b style="color:var(--text)">${a.openActions ?? 0}</b> actions</span>
+      <span><b style="color:var(--text)">${a.documents ?? 0}</b> docs</span>
       <span>${fmtMoney(a.annualRevenue)}/yr</span>
     </div>
   </div>`;
@@ -583,7 +745,7 @@ async function openAccountDrawer(id) {
     </div>`).join('') || '<div class="cell-sub">No cases.</div>';
 
   const deals = a.deals.map((d) => `
-    <div class="inline-item"><div class="cell-strong">${d.name}</div><div>${badge(titleCase(d.stage), 'b-slate')} <b>${fmtMoney(d.value)}</b></div></div>`).join('') || '<div class="cell-sub">No deals.</div>';
+    <div class="inline-item clickable" data-deal="${d.id}"><div class="cell-strong">${escHtml(d.name)}</div><div>${badge(titleCase(d.stage), 'b-slate')} <b>${fmtMoney(d.value)}</b></div></div>`).join('') || '<div class="cell-sub">No deals.</div>';
 
   const shipments = a.shipments.slice(0, 6).map((s) => `
     <div class="inline-item clickable" data-shp="${s.id}">
@@ -591,8 +753,27 @@ async function openAccountDrawer(id) {
       ${shipmentStatusBadge(s.status)}
     </div>`).join('') || '<div class="cell-sub">No shipments.</div>';
 
+  // Documents grouped by type (rate cards, agreements, QBRs, monthly decks).
+  const docs = a.documents || [];
+  const docSection = (label, type) => {
+    const items = docs.filter((d) => d.type === type);
+    if (!items.length) return '';
+    return `<div style="margin-bottom:10px"><div class="doc-group-label">${docMeta(type).icon} ${label}</div>${items.map(documentItem).join('')}</div>`;
+  };
+  const documentsHtml = docs.length
+    ? ['rate-card', 'agreement', 'qbr', 'monthly-deck', 'other']
+        .map((t) => docSection(state.meta.documentTypes.find((x) => x.key === t)?.label + 's', t)).join('')
+    : '<div class="cell-sub">No documents yet.</div>';
+
+  // Action register (from QBRs / monthly reviews).
+  const actions = a.actions || [];
+  const openActionCount = actions.filter((x) => x.status !== 'done').length;
+  const actionsHtml = actions.length
+    ? actions.map(actionItem).join('')
+    : '<div class="cell-sub">No actions logged.</div>';
+
   const activities = a.activities.slice(0, 8).map((x) => `
-    <div class="timeline__item"><div class="timeline__msg">${titleCase(x.type)}: ${x.subject}</div><div class="timeline__time">${fmtDateTime(x.at)}</div></div>`).join('') || '<div class="cell-sub">No activity.</div>';
+    <div class="timeline__item"><div class="timeline__msg">${titleCase(x.type)}: ${escHtml(x.subject)}</div><div class="timeline__time">${fmtDateTime(x.at)}</div></div>`).join('') || '<div class="cell-sub">No activity.</div>';
 
   openDrawer(`
     <div class="drawer__head">
@@ -613,6 +794,14 @@ async function openAccountDrawer(id) {
         </dl>
         ${a.notes ? `<p style="margin-top:10px;font-size:13px;color:var(--text-muted)">${a.notes}</p>` : ''}
         <div style="margin-top:12px"><label class="field"><span>Health</span><select id="healthSel">${state.meta.accountHealth.map((h) => `<option value="${h}" ${h === a.health ? 'selected' : ''}>${titleCase(h)}</option>`).join('')}</select></label><button class="btn btn--sm btn--primary" id="saveHealth">Update health</button></div>
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">📁 Documents &amp; agreements</h4><button class="btn btn--sm" id="addDoc">+ Add</button></div>
+        ${documentsHtml}
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">✔ Actions <span class="muted">${openActionCount} open</span></h4><button class="btn btn--sm" id="addAction">+ Add</button></div>
+        <div class="inline-list">${actionsHtml}</div>
       </div>
       <div class="drawer__section"><h4>Contacts</h4><div class="inline-list">${contacts}</div></div>
       <div class="drawer__section"><h4>Open cases</h4><div class="inline-list">${cases}</div></div>
@@ -639,8 +828,117 @@ async function openAccountDrawer(id) {
     await api.addActivity(id, { type: val('actType'), subject });
     toast('Activity logged', '', 'success'); openAccountDrawer(id);
   };
+  drawer.querySelector('#addDoc').onclick = () => openAddDocumentModal(id);
+  drawer.querySelector('#addAction').onclick = () => openAddActionModal(id);
+  // Toggle an action done / not-done.
+  drawer.querySelectorAll('[data-action-toggle]').forEach((n) => n.onclick = async (e) => {
+    e.stopPropagation();
+    const actionId = n.dataset.actionToggle;
+    await api.updateAction(actionId, { status: n.checked ? 'done' : 'open' });
+    openAccountDrawer(id);
+  });
+  drawer.querySelectorAll('[data-del-doc]').forEach((n) => n.onclick = async (e) => {
+    e.stopPropagation();
+    await api.deleteDocument(n.dataset.delDoc);
+    toast('Document removed', '', 'success'); openAccountDrawer(id);
+  });
   drawer.querySelectorAll('[data-case]').forEach((n) => n.onclick = () => { closeDrawer(); openCaseDrawer(n.dataset.case); });
   drawer.querySelectorAll('[data-shp]').forEach((n) => n.onclick = () => { closeDrawer(); openShipmentDrawer(n.dataset.shp); });
+  drawer.querySelectorAll('[data-deal]').forEach((n) => n.onclick = () => { closeDrawer(); openDealDrawer(n.dataset.deal); });
+}
+
+// --- Account document + action item templates -------------------------------
+function documentItem(d) {
+  const expiry = d.expiryDate ? new Date(d.expiryDate).getTime() : null;
+  const soon = expiry && expiry - Date.now() < 60 * 86400 * 1000 && expiry > Date.now();
+  const expired = expiry && expiry < Date.now();
+  const meta = [d.period, d.version, d.value ? fmtMoney(d.value) : null].filter(Boolean).join(' · ');
+  return `<div class="doc-item">
+    <div style="flex:1;min-width:0">
+      <div class="cell-strong">${d.url ? `<a href="${escAttr(d.url)}" target="_blank" rel="noopener">${escHtml(d.title)} ↗</a>` : escHtml(d.title)}</div>
+      <div class="cell-sub">${meta || fmtDate(d.date)}${d.expiryDate ? ` · ${expired ? '<span style="color:var(--red)">expired</span>' : soon ? `<span style="color:var(--amber)">expires ${fmtDate(d.expiryDate)}</span>` : `expires ${fmtDate(d.expiryDate)}`}` : ''}</div>
+    </div>
+    <span class="badge ${d.status === 'signed' || d.status === 'active' ? 'b-green' : d.status === 'draft' ? 'b-amber' : 'b-slate'}">${titleCase(d.status)}</span>
+    <button class="btn btn--sm btn--danger" data-del-doc="${d.id}" title="Remove">✕</button>
+  </div>`;
+}
+
+function actionItem(x) {
+  const done = x.status === 'done';
+  const overdue = !done && x.dueDate && new Date(x.dueDate).getTime() < Date.now();
+  return `<div class="inline-item" style="${done ? 'opacity:.6' : ''}">
+    <div style="display:flex;gap:10px;align-items:start;flex:1;min-width:0">
+      <input type="checkbox" style="width:auto;margin-top:2px" ${done ? 'checked' : ''} data-action-toggle="${x.id}" />
+      <div style="min-width:0">
+        <div class="cell-strong" style="${done ? 'text-decoration:line-through' : ''}">${escHtml(x.title)}</div>
+        <div class="cell-sub">
+          ${badge(titleCase(x.source), 'b-slate')}
+          ${x.owner ? ' · ' + escHtml(x.owner) : ''}
+          ${x.dueDate ? ` · <span style="${overdue ? 'color:var(--red);font-weight:700' : ''}">due ${fmtDate(x.dueDate)}${overdue ? ' (overdue)' : ''}</span>` : ''}
+        </div>
+      </div>
+    </div>
+    ${actionStatusBadge(x.status)}
+  </div>`;
+}
+
+function openAddDocumentModal(accountId) {
+  const m = state.meta;
+  openModal(`
+    <div class="modal__head">Add document</div>
+    <div class="modal__body">
+      <label class="field"><span>Title *</span><input id="d-title" placeholder="e.g. FY26 Rate Card" /></label>
+      <div class="form-row">
+        <label class="field"><span>Type</span><select id="d-type">${m.documentTypes.map((t) => `<option value="${t.key}">${t.label}</option>`).join('')}</select></label>
+        <label class="field"><span>Status</span><select id="d-status">${m.documentStatuses.map((s) => `<option value="${s}" ${s === 'active' ? 'selected' : ''}>${titleCase(s)}</option>`).join('')}</select></label>
+        <label class="field"><span>Period</span><input id="d-period" placeholder="e.g. Q3 FY26 / 2026" /></label>
+        <label class="field"><span>Effective date</span><input id="d-date" type="date" /></label>
+        <label class="field"><span>Expiry (optional)</span><input id="d-expiry" type="date" /></label>
+        <label class="field"><span>Value (optional)</span><input id="d-value" type="number" /></label>
+      </div>
+      <label class="field"><span>Link (URL)</span><input id="d-url" placeholder="https://…" /></label>
+      <label class="field"><span>Notes</span><textarea id="d-notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createDoc">Add document</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createDoc').onclick = async () => {
+    const body = {
+      title: val('d-title'), type: val('d-type'), status: val('d-status'), period: val('d-period'),
+      date: val('d-date') || undefined, expiryDate: val('d-expiry') || null,
+      value: val('d-value') || null, url: val('d-url'), notes: val('d-notes'),
+    };
+    if (!body.title) return toast('Title required', '', 'warn');
+    await api.addDocument(accountId, body);
+    closeModal(); toast('Document added', '', 'success'); openAccountDrawer(accountId);
+  };
+}
+
+function openAddActionModal(accountId) {
+  const m = state.meta;
+  openModal(`
+    <div class="modal__head">Add action</div>
+    <div class="modal__body">
+      <label class="field"><span>Action *</span><input id="ac-title" placeholder="e.g. Send renewal proposal" /></label>
+      <div class="form-row">
+        <label class="field"><span>Source</span><select id="ac-source">${m.actionSources.map((s) => `<option value="${s}">${titleCase(s)}</option>`).join('')}</select></label>
+        <label class="field"><span>Status</span><select id="ac-status">${m.actionStatuses.map((s) => `<option value="${s}">${titleCase(s)}</option>`).join('')}</select></label>
+        <label class="field"><span>Owner</span><input id="ac-owner" placeholder="Owner name" /></label>
+        <label class="field"><span>Due date</span><input id="ac-due" type="date" /></label>
+        <label class="field"><span>Priority</span><select id="ac-priority"><option>low</option><option selected>medium</option><option>high</option></select></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea id="ac-notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createAction">Add action</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createAction').onclick = async () => {
+    const body = {
+      title: val('ac-title'), source: val('ac-source'), status: val('ac-status'),
+      owner: val('ac-owner'), dueDate: val('ac-due') || null, priority: val('ac-priority'), notes: val('ac-notes'),
+    };
+    if (!body.title) return toast('Action required', '', 'warn');
+    await api.addAction(accountId, body);
+    closeModal(); toast('Action added', '', 'success'); openAccountDrawer(accountId);
+  };
 }
 
 function openNewAccountModal() {

@@ -20,6 +20,8 @@ const COLLECTIONS = [
   'events',
   'activities',
   'agents',
+  'documents',
+  'actions',
 ];
 
 function emptyState() {

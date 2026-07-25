@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { db } from '../server/db.js';
 import { ingestEvent } from '../server/events.js';
-import { isExceptionStatus, slaDueDate, SLA_HOURS } from '../server/domain.js';
+import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet } from '../server/domain.js';
 
 // Build an isolated in-memory dataset for each test run.
 function bootstrap() {
@@ -101,4 +101,13 @@ test('missing required fields are rejected', () => {
   bootstrap();
   assert.throws(() => ingestEvent({ status: 'delayed' }), /shipmentRef/);
   assert.throws(() => ingestEvent({ shipmentRef: 'X' }), /status/);
+});
+
+test('empty Blue Sheet has the full Strategic Selling shape', () => {
+  const bs = emptyBlueSheet();
+  assert.equal(bs.funnelPosition, 'in-funnel');
+  for (const k of ['buyingInfluences', 'redFlags', 'strengths', 'competition', 'winResults', 'actionPlan']) {
+    assert.ok(Array.isArray(bs[k]), `${k} is an array`);
+  }
+  assert.equal(bs.sso, '');
 });

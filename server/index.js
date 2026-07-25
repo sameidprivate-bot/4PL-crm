@@ -18,6 +18,18 @@ import {
   ACCOUNT_TIERS,
   ACCOUNT_HEALTH,
   BRANDS,
+  BUYING_INFLUENCE_ROLES,
+  BUYING_MODES,
+  BUYING_RATINGS,
+  INFLUENCE_LEVELS,
+  FUNNEL_POSITIONS,
+  ICP_FIT,
+  COMPETITION_TYPES,
+  DOCUMENT_TYPES,
+  DOCUMENT_STATUSES,
+  ACTION_STATUSES,
+  ACTION_SOURCES,
+  emptyBlueSheet,
   stageMeta,
   slaDueDate,
 } from './domain.js';
@@ -37,6 +49,8 @@ db.syncCounters({
   events: { prefix: 'EVT', start: 1 },
   activities: { prefix: 'ACT', start: 1 },
   agents: { prefix: 'AGT', start: 1 },
+  documents: { prefix: 'DOC', start: 1 },
+  actions: { prefix: 'ACTN', start: 1 },
 });
 if (db.collection('accounts').length === 0) {
   console.log('[boot] empty database — seeding demo data');
@@ -71,6 +85,17 @@ api.get('/meta', (_req, res) => {
     shipmentStatuses: SHIPMENT_STATUSES,
     accountTiers: ACCOUNT_TIERS,
     accountHealth: ACCOUNT_HEALTH,
+    buyingInfluenceRoles: BUYING_INFLUENCE_ROLES,
+    buyingModes: BUYING_MODES,
+    buyingRatings: BUYING_RATINGS,
+    influenceLevels: INFLUENCE_LEVELS,
+    funnelPositions: FUNNEL_POSITIONS,
+    icpFit: ICP_FIT,
+    competitionTypes: COMPETITION_TYPES,
+    documentTypes: DOCUMENT_TYPES,
+    documentStatuses: DOCUMENT_STATUSES,
+    actionStatuses: ACTION_STATUSES,
+    actionSources: ACTION_SOURCES,
     agents: db.collection('agents'),
   });
 });
@@ -107,6 +132,16 @@ api.get('/dashboard', (req, res) => {
   const eventsToday = events.filter((e) => new Date(e.receivedAt).getTime() >= startOfDay.getTime());
   const exceptionsToday = eventsToday.filter((e) => e.isException);
 
+  // Account-management signals from the document library + action register.
+  const accountIds = new Set(db.collection('accounts').filter(bf).map((a) => a.id));
+  const openActions = db.collection('actions').filter((a) => accountIds.has(a.accountId) && a.status !== 'done');
+  const overdueActions = openActions.filter((a) => a.dueDate && new Date(a.dueDate).getTime() < now);
+  const in60 = now + 60 * 86400 * 1000;
+  const expiringAgreements = db.collection('documents').filter(
+    (dc) => accountIds.has(dc.accountId) && dc.type === 'agreement' && dc.expiryDate &&
+      new Date(dc.expiryDate).getTime() < in60 && new Date(dc.expiryDate).getTime() > now,
+  );
+
   // Case distribution by priority and by category.
   const byPriority = {};
   for (const p of CASE_PRIORITIES) byPriority[p] = openCases.filter((c) => c.priority === p).length;
@@ -133,6 +168,9 @@ api.get('/dashboard', (req, res) => {
       wonValue: Math.round(wonThisView.reduce((s, d) => s + d.value, 0)),
       accounts: db.collection('accounts').filter(bf).length,
       atRiskAccounts: db.collection('accounts').filter(bf).filter((a) => a.health === 'at-risk').length,
+      openActions: openActions.length,
+      overdueActions: overdueActions.length,
+      expiringAgreements: expiringAgreements.length,
     },
     byPriority,
     byCategory,
@@ -166,6 +204,8 @@ api.get('/accounts', (req, res) => {
       openCases: db.filter('cases', (c) => c.accountId === a.id && openCaseStatuses.has(c.status)).length,
       openDeals: db.filter('deals', (d) => d.accountId === a.id && !['won', 'lost'].includes(d.stage)).length,
       activeShipments: db.filter('shipments', (s) => s.accountId === a.id && !['delivered', 'pod-captured', 'returned'].includes(s.status)).length,
+      openActions: db.filter('actions', (x) => x.accountId === a.id && x.status !== 'done').length,
+      documents: db.filter('documents', (x) => x.accountId === a.id).length,
     })),
   );
 });
@@ -178,11 +218,23 @@ api.get('/accounts/:id', (req, res) => {
     owner: db.getById('agents', account.ownerId) || null,
     contacts: db.filter('contacts', (c) => c.accountId === account.id),
     cases: db.filter('cases', (c) => c.accountId === account.id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-    deals: db.filter('deals', (d) => d.accountId === account.id),
+    deals: db.filter('deals', (d) => d.accountId === account.id).map(decorateDeal),
     shipments: db.filter('shipments', (s) => s.accountId === account.id).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)),
     activities: db.filter('activities', (x) => x.accountId === account.id).sort((a, b) => new Date(b.at) - new Date(a.at)),
+    documents: db.filter('documents', (x) => x.accountId === account.id).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt)),
+    actions: db.filter('actions', (x) => x.accountId === account.id).sort(actionSort),
   });
 });
+
+// Sort actions: open/blocked/in-progress first (by due date), done last.
+function actionSort(a, b) {
+  const openA = a.status !== 'done';
+  const openB = b.status !== 'done';
+  if (openA !== openB) return openA ? -1 : 1;
+  const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+  const dbb = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+  return da - dbb;
+}
 
 api.post('/accounts', asyncH((req, res) => {
   const b = req.body || {};
@@ -229,6 +281,91 @@ api.post('/accounts/:id/activities', asyncH((req, res) => {
   };
   db.insert('activities', activity);
   res.status(201).json(activity);
+}));
+
+// --- Account documents: rate cards, agreements, QBRs, monthly decks ---------
+api.get('/accounts/:id/documents', (req, res) => {
+  const rows = db.filter('documents', (d) => d.accountId === req.params.id);
+  if (req.query.type) return res.json(rows.filter((d) => d.type === req.query.type));
+  res.json(rows);
+});
+
+api.post('/accounts/:id/documents', asyncH((req, res) => {
+  const account = db.getById('accounts', req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  const b = req.body || {};
+  if (!b.title) throw new ValidationError('title is required');
+  const now = new Date().toISOString();
+  const doc = {
+    id: db.nextId('DOC'),
+    accountId: account.id,
+    type: b.type || 'other',
+    title: b.title,
+    period: b.period || '',
+    date: b.date || now.slice(0, 10),
+    expiryDate: b.expiryDate || null,
+    owner: b.owner || null,
+    status: b.status || 'active',
+    url: b.url || '',
+    value: b.value != null ? Number(b.value) : null,
+    notes: b.notes || '',
+    version: b.version || 'v1',
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert('documents', doc);
+  res.status(201).json(doc);
+}));
+
+api.patch('/documents/:id', asyncH((req, res) => {
+  const updated = db.update('documents', req.params.id, req.body || {});
+  if (!updated) return res.status(404).json({ error: 'Document not found' });
+  res.json(updated);
+}));
+
+api.delete('/documents/:id', asyncH((req, res) => {
+  const ok = db.remove('documents', req.params.id);
+  if (!ok) return res.status(404).json({ error: 'Document not found' });
+  res.json({ ok: true });
+}));
+
+// --- Account actions: QBR / monthly review action register ------------------
+api.get('/accounts/:id/actions', (req, res) => {
+  res.json(db.filter('actions', (a) => a.accountId === req.params.id).sort(actionSort));
+});
+
+api.post('/accounts/:id/actions', asyncH((req, res) => {
+  const account = db.getById('accounts', req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  const b = req.body || {};
+  if (!b.title) throw new ValidationError('title is required');
+  const now = new Date().toISOString();
+  const action = {
+    id: db.nextId('ACTN'),
+    accountId: account.id,
+    title: b.title,
+    owner: b.owner || null,
+    dueDate: b.dueDate || null,
+    status: b.status || 'open',
+    priority: b.priority || 'medium',
+    source: b.source || 'manual',
+    documentId: b.documentId || null,
+    notes: b.notes || '',
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+  };
+  db.insert('actions', action);
+  res.status(201).json(action);
+}));
+
+api.patch('/actions/:id', asyncH((req, res) => {
+  const existing = db.getById('actions', req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Action not found' });
+  const patch = { ...req.body };
+  if (patch.status === 'done' && existing.status !== 'done') patch.completedAt = new Date().toISOString();
+  if (patch.status && patch.status !== 'done') patch.completedAt = null;
+  res.json(db.update('actions', req.params.id, patch));
 }));
 
 // --- Contacts ----------------------------------------------------------------
@@ -418,11 +555,32 @@ api.post('/deals', asyncH((req, res) => {
     serviceType: b.serviceType || 'Managed Freight',
     expectedCloseAt: b.expectedCloseAt || null,
     source: b.source || 'Direct',
+    blueSheet: { ...emptyBlueSheet(), ...(b.blueSheet || {}) },
     createdAt: now,
     updatedAt: now,
   };
   db.insert('deals', deal);
   res.status(201).json(decorateDeal(deal));
+}));
+
+api.get('/deals/:id', (req, res) => {
+  const d = db.getById('deals', req.params.id);
+  if (!d) return res.status(404).json({ error: 'Deal not found' });
+  if (!d.blueSheet) d.blueSheet = emptyBlueSheet();
+  res.json({
+    ...decorateDeal(d),
+    account: d.accountId ? db.getById('accounts', d.accountId) : null,
+    owner: d.ownerId ? db.getById('agents', d.ownerId) : null,
+  });
+});
+
+// Update just the Blue Sheet (Strategic Selling analysis).
+api.put('/deals/:id/bluesheet', asyncH((req, res) => {
+  const existing = db.getById('deals', req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Deal not found' });
+  const blueSheet = { ...emptyBlueSheet(), ...(existing.blueSheet || {}), ...(req.body || {}) };
+  const updated = db.update('deals', req.params.id, { blueSheet });
+  res.json(decorateDeal(updated));
 }));
 
 api.patch('/deals/:id', asyncH((req, res) => {
@@ -434,13 +592,31 @@ api.patch('/deals/:id', asyncH((req, res) => {
 
 function decorateDeal(d) {
   const meta = stageMeta(d.stage);
+  const bs = d.blueSheet;
   return {
     ...d,
     accountName: d.accountId ? db.getById('accounts', d.accountId)?.name : d.prospectName,
     ownerName: d.ownerId ? db.getById('agents', d.ownerId)?.name : null,
     probability: meta?.probability ?? 0,
     weightedValue: Math.round(d.value * ((meta?.probability ?? 0) / 100)),
+    blueSheetScore: blueSheetScore(bs),
+    redFlagCount: bs?.redFlags?.length || 0,
   };
+}
+
+// A rough "how complete/healthy is this Blue Sheet" score (0–100) so the
+// board can surface deals that still need strategic-selling work.
+function blueSheetScore(bs) {
+  if (!bs) return 0;
+  let score = 0;
+  if (bs.sso) score += 20;
+  if (bs.buyingInfluences?.length) score += Math.min(30, bs.buyingInfluences.length * 10);
+  if (bs.buyingInfluences?.some((b) => b.role === 'coach')) score += 10;
+  if (bs.buyingInfluences?.some((b) => b.role === 'economic')) score += 10;
+  if (bs.strengths?.length) score += 10;
+  if (bs.winResults?.length) score += 10;
+  if (bs.actionPlan?.some((a) => a.status !== 'done')) score += 10;
+  return Math.min(100, score);
 }
 
 // --- Shipments ---------------------------------------------------------------

@@ -217,6 +217,15 @@ table.data tbody tr.clickable:hover { background: var(--surface-2); cursor: poin
 .deal-card__val { font-weight: 750; }
 .probbar { height: 4px; background: var(--slate-bg); border-radius: 3px; margin-top: 8px; overflow: hidden; }
 .probbar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
+.deal-card__bs { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+.bs-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.bs-flags { margin-left: auto; color: var(--red); font-weight: 700; }
+
+/* Compact editable tables (Blue Sheet) */
+table.data.mini th { padding: 6px 6px; font-size: 10px; }
+table.data.mini td { padding: 5px 6px; }
+table.data.mini input, table.data.mini select { padding: 5px 7px; font-size: 12px; }
+table.data.mini .btn--danger { padding: 4px 8px; }
 
 /* ---- Progress / meters ---- */
 .meter { display: flex; flex-direction: column; gap: 7px; }
@@ -271,6 +280,10 @@ table.data tbody tr.clickable:hover { background: var(--surface-2); cursor: poin
 .inline-item.clickable:hover { border-color: var(--text-faint); cursor: pointer; }
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.doc-group-label { font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.03em; margin: 4px 0 6px; }
+.doc-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; margin-bottom: 6px; font-size: 12.5px; }
+.doc-item a { color: var(--primary); font-weight: 600; }
 
 /* ---- Modal ---- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); z-index: 60; display: grid; place-items: center; padding: 20px; }

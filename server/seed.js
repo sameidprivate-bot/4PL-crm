@@ -2,8 +2,12 @@
 // Run with:  npm run seed   (adds --reset to wipe first)
 
 import { db } from './db.js';
-import { slaDueDate } from './domain.js';
+import { slaDueDate, emptyBlueSheet } from './domain.js';
 import { ingestEvent } from './events.js';
+
+function dateOnly(n) {
+  return new Date(Date.now() + n * 86400 * 1000).toISOString().slice(0, 10);
+}
 
 function daysAgo(n) {
   return new Date(Date.now() - n * 86400 * 1000).toISOString();
@@ -98,7 +102,68 @@ export function seed() {
     { id: 'DEAL-7', name: 'Northwind Apparel — 4PL tender', accountId: null, brand: 'EFM', stage: 'qualified', value: 510000, ownerId: 'AGT-5', serviceType: 'Full 4PL', expectedCloseAt: daysFromNow(75), source: 'Tender', prospectName: 'Northwind Apparel' },
     { id: 'DEAL-8', name: 'Cedar Home — returns management', accountId: null, brand: 'AFS', stage: 'lost', value: 72000, ownerId: 'AGT-5', serviceType: 'Reverse Logistics', expectedCloseAt: daysAgo(12), source: 'Inbound', prospectName: 'Cedar Home', lostReason: 'Chose incumbent 3PL' },
   ];
-  deals.forEach((d) => db.insert('deals', { ...d, createdAt: daysAgo(50), updatedAt: daysAgo(2) }));
+  // Miller Heiman Blue Sheets for the live opportunities.
+  const blueSheets = {
+    'DEAL-1': {
+      sso: 'Secure a 24-month national managed-LTL agreement consolidating 42 stores by end of Q3, target $420k ARR.',
+      funnelPosition: 'best-few',
+      icpFit: 'strong',
+      buyingInfluences: [
+        { id: 'BI-1', name: 'Elena Fischer', title: 'Head of Supply Chain', role: 'economic', rating: 'supporter', mode: 'growth', influence: 'high', notes: 'Owns the budget; wants peak-season resilience.' },
+        { id: 'BI-2', name: 'Tom Baker', title: 'Logistics Coordinator', role: 'user', rating: 'enthusiastic', mode: 'trouble', influence: 'medium', notes: 'Feels the pain of current carrier chaos — our coach.' },
+        { id: 'BI-3', name: 'CFO (unknown)', title: 'Chief Financial Officer', role: 'technical', rating: 'neutral', mode: 'even-keel', influence: 'high', notes: 'Not yet engaged — RED FLAG.' },
+      ],
+      redFlags: ['CFO not yet met — final sign-off unclear', 'No written confirmation of Q3 budget'],
+      strengths: ['Single control-tower view across all carriers', 'Proven peak-season surge capacity', 'Incumbent already trusts our exception handling'],
+      competition: [{ type: 'status-quo', name: 'Current in-house multi-carrier setup', notes: 'Fragmented; no single throat to choke.' }, { type: 'direct', name: 'Regional 3PL', notes: 'Cheaper but no 4PL control tower.' }],
+      winResults: [
+        { influence: 'Elena Fischer', win: 'Recognised for de-risking peak season', result: 'On-time delivery >98% across stores' },
+        { influence: 'Tom Baker', win: 'Stops firefighting carrier issues daily', result: 'Automated exception handling' },
+      ],
+      actionPlan: [
+        { id: 'AP-1', action: 'Arrange intro meeting with CFO', owner: 'Hannah Reyes', dueDate: dateOnly(5), status: 'open' },
+        { id: 'AP-2', action: 'Send peak-season capacity commitment letter', owner: 'Daniel Cho', dueDate: dateOnly(2), status: 'in-progress' },
+      ],
+      bestActionCommitment: 'Get Elena to introduce us to the CFO before the proposal review.',
+    },
+    'DEAL-2': {
+      sso: 'Win a 12-month inbound control-tower engagement for Corevolt components, $260k, decision by next month.',
+      funnelPosition: 'in-funnel',
+      icpFit: 'strong',
+      buyingInfluences: [
+        { id: 'BI-4', name: 'Raj Patel', title: 'Procurement Manager', role: 'economic', rating: 'supporter', mode: 'trouble', influence: 'high', notes: 'Burned by transit-time variance; motivated.' },
+        { id: 'BI-5', name: 'Plant Ops Lead', title: 'Operations', role: 'user', rating: 'neutral', mode: 'even-keel', influence: 'medium', notes: 'Needs proof it won\'t disrupt the line.' },
+      ],
+      redFlags: ['No coach identified inside Corevolt yet'],
+      strengths: ['Real-time inbound visibility to the assembly line', 'Predictive delay alerts via efmAPP'],
+      competition: [{ type: 'no-decision', name: 'Do nothing', notes: 'Risk they keep tolerating variance.' }],
+      winResults: [{ influence: 'Raj Patel', win: 'Predictable inbound = fewer escalations', result: 'Transit-time variance cut 40%' }],
+      actionPlan: [{ id: 'AP-3', action: 'Run a 2-week efmAPP visibility pilot', owner: 'Hannah Reyes', dueDate: dateOnly(10), status: 'open' }],
+      bestActionCommitment: 'Identify and develop a coach in Corevolt operations.',
+    },
+    'DEAL-3': {
+      sso: 'Redesign Meridian cold-chain lanes under a new $330k program; qualify budget and timeline this quarter.',
+      funnelPosition: 'in-funnel',
+      icpFit: 'moderate',
+      buyingInfluences: [
+        { id: 'BI-6', name: 'Dr. Amelia Stone', title: 'VP Operations', role: 'economic', rating: 'neutral', mode: 'trouble', influence: 'high', notes: 'Two recent customs holds — credibility at stake.' },
+      ],
+      redFlags: ['Account health is at-risk after customs incidents', 'Technical/compliance buyer not mapped'],
+      strengths: ['Cold-chain compliance track record', 'Customs brokerage partnerships'],
+      competition: [{ type: 'direct', name: 'Incumbent cold-chain 3PL', notes: 'Responsible for recent holds.' }],
+      winResults: [{ influence: 'Dr. Amelia Stone', win: 'Restores board confidence in logistics', result: 'Zero temperature excursions' }],
+      actionPlan: [{ id: 'AP-4', action: 'Present customs-hold root-cause & remediation plan', owner: 'Daniel Cho', dueDate: dateOnly(4), status: 'in-progress' }],
+      bestActionCommitment: 'Convert the at-risk relationship by owning the customs remediation.',
+    },
+  };
+  deals.forEach((d) =>
+    db.insert('deals', {
+      ...d,
+      blueSheet: { ...emptyBlueSheet(), ...(blueSheets[d.id] || {}) },
+      createdAt: daysAgo(50),
+      updatedAt: daysAgo(2),
+    }),
+  );
 
   // --- Shipments (baseline; efmAPP events will update these) ----------------
   const shipments = [
@@ -158,6 +223,42 @@ export function seed() {
   ];
   activities.forEach((a) => db.insert('activities', { ...a, createdAt: a.at }));
 
+  // --- Account document library: rates, agreements, QBRs, monthly decks -----
+  const documents = [
+    // Brightline (ACC-1)
+    { id: 'DOC-1', accountId: 'ACC-1', type: 'agreement', title: 'Managed Freight Services Agreement', period: '2024–2026', date: dateOnly(-540), expiryDate: dateOnly(45), owner: 'AGT-4', status: 'signed', value: 1850000, url: 'https://vault.example/brightline/msa-2024.pdf', version: 'v2', notes: 'Auto-renews unless 60-day notice. Renewal window opening soon.' },
+    { id: 'DOC-2', accountId: 'ACC-1', type: 'rate-card', title: 'FY26 Road LTL/FTL Rate Card', period: 'FY2026', date: dateOnly(-120), expiryDate: dateOnly(245), owner: 'AGT-4', status: 'active', url: 'https://vault.example/brightline/rates-fy26.xlsx', version: 'v3' },
+    { id: 'DOC-3', accountId: 'ACC-1', type: 'qbr', title: 'Q2 FY26 Business Review', period: 'Q2 FY26', date: dateOnly(-30), owner: 'AGT-4', status: 'shared', url: 'https://vault.example/brightline/qbr-q2fy26.pptx', notes: 'Peak-season capacity plan endorsed.' },
+    { id: 'DOC-4', accountId: 'ACC-1', type: 'monthly-deck', title: 'June performance deck', period: 'Jun 2026', date: dateOnly(-25), owner: 'AGT-4', status: 'shared', url: 'https://vault.example/brightline/monthly-jun26.pdf' },
+    // Corevolt (ACC-2)
+    { id: 'DOC-5', accountId: 'ACC-2', type: 'agreement', title: 'Inbound Freight Management Agreement', period: '2023–2025', date: dateOnly(-380), expiryDate: dateOnly(150), owner: 'AGT-4', status: 'signed', value: 940000, url: 'https://vault.example/corevolt/agreement.pdf', version: 'v1' },
+    { id: 'DOC-6', accountId: 'ACC-2', type: 'rate-card', title: 'Sea + Road Inbound Rate Card', period: '2026', date: dateOnly(-60), owner: 'AGT-4', status: 'active', url: 'https://vault.example/corevolt/rates-2026.xlsx', version: 'v2' },
+    { id: 'DOC-7', accountId: 'ACC-2', type: 'qbr', title: 'H1 2026 Business Review', period: 'H1 2026', date: dateOnly(-14), owner: 'AGT-4', status: 'shared', url: 'https://vault.example/corevolt/qbr-h1.pptx', notes: 'Transit-time variance a key theme.' },
+    // Meridian (ACC-3) — at-risk
+    { id: 'DOC-8', accountId: 'ACC-3', type: 'agreement', title: 'Cold-Chain Logistics Agreement', period: '2024–2027', date: dateOnly(-560), expiryDate: dateOnly(400), owner: 'AGT-4', status: 'signed', value: 1220000, url: 'https://vault.example/meridian/agreement.pdf', version: 'v1' },
+    { id: 'DOC-9', accountId: 'ACC-3', type: 'rate-card', title: 'Air Cold-Chain Rate Card', period: '2026', date: dateOnly(-90), owner: 'AGT-4', status: 'active', url: 'https://vault.example/meridian/rates.xlsx', version: 'v1' },
+    { id: 'DOC-10', accountId: 'ACC-3', type: 'qbr', title: 'Q2 2026 Business Review (customs incidents)', period: 'Q2 2026', date: dateOnly(-7), owner: 'AGT-4', status: 'shared', url: 'https://vault.example/meridian/qbr-q2.pptx', notes: 'Remediation plan for customs holds agreed.' },
+    { id: 'DOC-11', accountId: 'ACC-3', type: 'monthly-deck', title: 'July performance deck', period: 'Jul 2026', date: dateOnly(-2), owner: 'AGT-4', status: 'draft', notes: 'Draft — awaiting customs KPIs.' },
+    // NovaFresh (ACC-4)
+    { id: 'DOC-12', accountId: 'ACC-4', type: 'rate-card', title: 'Reefer LTL Rate Card', period: '2026', date: dateOnly(-45), owner: 'AGT-4', status: 'active', url: 'https://vault.example/novafresh/rates.xlsx', version: 'v1' },
+    { id: 'DOC-13', accountId: 'ACC-4', type: 'monthly-deck', title: 'June performance deck', period: 'Jun 2026', date: dateOnly(-20), owner: 'AGT-4', status: 'shared', url: 'https://vault.example/novafresh/monthly-jun.pdf' },
+    // Apex (ACC-5)
+    { id: 'DOC-14', accountId: 'ACC-5', type: 'agreement', title: 'JIT Parcel Program Agreement', period: '2026', date: dateOnly(-6), expiryDate: dateOnly(359), owner: 'AGT-4', status: 'signed', value: 98000, url: 'https://vault.example/apex/agreement.pdf', version: 'v1', notes: 'Newly won — DEAL-5.' },
+  ];
+  documents.forEach((d) => db.insert('documents', { ...d, createdAt: d.date, updatedAt: d.date }));
+
+  // --- Action register: items captured from QBRs / monthly reviews ----------
+  const actions = [
+    { id: 'ACTN-1', accountId: 'ACC-1', title: 'Confirm peak-season carrier capacity commitments', owner: 'AGT-4', dueDate: dateOnly(7), status: 'in-progress', priority: 'high', source: 'qbr', documentId: 'DOC-3', notes: 'From Q2 QBR action list.' },
+    { id: 'ACTN-2', accountId: 'ACC-1', title: 'Issue 60-day renewal notice decision to Brightline', owner: 'AGT-4', dueDate: dateOnly(10), status: 'open', priority: 'high', source: 'rate-review', documentId: 'DOC-1', notes: 'MSA renewal window.' },
+    { id: 'ACTN-3', accountId: 'ACC-2', title: 'Share transit-time variance improvement plan', owner: 'AGT-4', dueDate: dateOnly(-2), status: 'open', priority: 'high', source: 'qbr', documentId: 'DOC-7', notes: 'Overdue — chase.' },
+    { id: 'ACTN-4', accountId: 'ACC-3', title: 'Deliver customs-hold root-cause analysis', owner: 'AGT-4', dueDate: dateOnly(3), status: 'in-progress', priority: 'high', source: 'qbr', documentId: 'DOC-10' },
+    { id: 'ACTN-5', accountId: 'ACC-3', title: 'Finalise July performance deck with customs KPIs', owner: 'AGT-4', dueDate: dateOnly(5), status: 'open', priority: 'medium', source: 'monthly-deck', documentId: 'DOC-11' },
+    { id: 'ACTN-6', accountId: 'ACC-4', title: 'Review reefer rate card ahead of contract renewal', owner: 'AGT-4', dueDate: dateOnly(21), status: 'open', priority: 'medium', source: 'rate-review', documentId: 'DOC-12' },
+    { id: 'ACTN-7', accountId: 'ACC-1', title: 'Circulate June deck highlights to store ops', owner: 'AGT-4', dueDate: dateOnly(-8), status: 'done', priority: 'low', source: 'monthly-deck', documentId: 'DOC-4' },
+  ];
+  actions.forEach((a) => db.insert('actions', { ...a, createdAt: daysAgo(10), updatedAt: daysAgo(1), completedAt: a.status === 'done' ? daysAgo(1) : null }));
+
   // Keep id counters ahead of seeded records.
   db.syncCounters({
     accounts: { prefix: 'ACC', start: 1 },
@@ -168,6 +269,8 @@ export function seed() {
     events: { prefix: 'EVT', start: 1 },
     activities: { prefix: 'ACT', start: 1 },
     agents: { prefix: 'AGT', start: 1 },
+    documents: { prefix: 'DOC', start: 1 },
+    actions: { prefix: 'ACTN', start: 1 },
   });
 
   // --- Replay a burst of efmAPP events to demonstrate live ingestion --------
@@ -191,6 +294,8 @@ export function seed() {
     cases: db.collection('cases').length,
     events: db.collection('events').length,
     activities: db.collection('activities').length,
+    documents: db.collection('documents').length,
+    actions: db.collection('actions').length,
   };
 }
 

@@ -27,6 +27,12 @@ export const api = {
   addActivity: (id, b) => req('POST', `/accounts/${id}/activities`, b),
   createContact: (b) => req('POST', '/contacts', b),
 
+  addDocument: (id, b) => req('POST', `/accounts/${id}/documents`, b),
+  updateDocument: (id, b) => req('PATCH', `/documents/${id}`, b),
+  deleteDocument: (id) => req('DELETE', `/documents/${id}`),
+  addAction: (id, b) => req('POST', `/accounts/${id}/actions`, b),
+  updateAction: (id, b) => req('PATCH', `/actions/${id}`, b),
+
   cases: (q) => req('GET', '/cases' + qs(q)),
   case: (id) => req('GET', `/cases/${id}`),
   createCase: (b) => req('POST', '/cases', b),
@@ -34,9 +40,11 @@ export const api = {
   addCaseNote: (id, b) => req('POST', `/cases/${id}/notes`, b),
 
   deals: (q) => req('GET', '/deals' + qs(q)),
+  deal: (id) => req('GET', `/deals/${id}`),
   dealBoard: (q) => req('GET', '/deals/board' + qs(q)),
   createDeal: (b) => req('POST', '/deals', b),
   updateDeal: (id, b) => req('PATCH', `/deals/${id}`, b),
+  saveBlueSheet: (id, b) => req('PUT', `/deals/${id}/bluesheet`, b),
 
   shipments: (q) => req('GET', '/shipments' + qs(q)),
   shipment: (id) => req('GET', `/shipments/${id}`),
