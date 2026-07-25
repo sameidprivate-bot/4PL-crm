@@ -1,4 +1,4 @@
-// Shared domain vocabulary for the EFM & AFS 4PL CRM.
+// Shared domain vocabulary for MOVEiTcrm (EFM & AFS 4PL).
 
 export const BRANDS = ['EFM', 'AFS'];
 

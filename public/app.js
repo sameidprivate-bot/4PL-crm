@@ -1,4 +1,4 @@
-// EFM & AFS 4PL CRM — single-page frontend.
+// MOVEiTcrm — 4PL Control Tower (EFM & AFS) single-page frontend.
 import { api } from './api.js';
 import {
   el, fmtMoney, fmtDate, fmtDateTime, timeAgo, badge, brandChip,

@@ -1,6 +1,7 @@
-# EFM &amp; AFS — 4PL CRM
+# MOVEiTcrm — 4PL Control Tower
 
-A control-tower CRM for the **EFM** and **AFS** fourth-party-logistics (4PL) brands.
+**MOVEiTcrm** is a control-tower CRM for the **EFM** and **AFS** fourth-party-logistics (4PL) brands.
+Styled in the MOVEiTcx / AFS Logistics brand palette (midnight blue + logistics red).
 It unifies the three things a 4PL customer-service and commercial team need in one
 place — **case management**, a **sales pipeline**, and **account management** — and wires
 them to live shipment telemetry so the desk works *proactively*.

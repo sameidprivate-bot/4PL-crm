@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+// MOVEiTcrm — 4PL Control Tower (EFM & AFS)
 import { db } from './db.js';
 import { ingestEvent, ValidationError } from './events.js';
 import { seed } from './seed.js';
@@ -716,7 +717,7 @@ app.get('*', (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n  EFM & AFS 4PL CRM running at http://localhost:${PORT}`);
+  console.log(`\n  MOVEiTcrm — 4PL Control Tower running at http://localhost:${PORT}`);
   console.log(`  API base:  http://localhost:${PORT}/api`);
   console.log(`  efmAPP ingest:  POST http://localhost:${PORT}/api/events/efmapp\n`);
 });

@@ -1,7 +1,7 @@
 {
-  "name": "efm-afs-4pl-crm",
+  "name": "moveitcrm",
   "version": "1.0.0",
-  "description": "4PL CRM for EFM & AFS — case management, sales pipeline, account management, and live efmAPP status-event ingestion for customer service agents.",
+  "description": "MOVEiTcrm — 4PL Control Tower CRM for EFM & AFS: case management, sales pipeline with Miller Heiman Blue Sheets, account management with document library, and live efmAPP status-event ingestion for customer service agents.",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

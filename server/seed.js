@@ -1,4 +1,4 @@
-// Seed the CRM with realistic EFM & AFS 4PL data.
+// Seed MOVEiTcrm with realistic EFM & AFS 4PL data.
 // Run with:  npm run seed   (adds --reset to wipe first)
 
 import { db } from './db.js';
