@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EFM &amp; AFS · 4PL CRM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%232563eb'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'%3E4%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="brandmark">
+          <div class="brandmark__logo">4PL</div>
+          <div>
+            <div class="brandmark__title">EFM &amp; AFS</div>
+            <div class="brandmark__sub">Control Tower CRM</div>
+          </div>
+        </div>
+
+        <div class="brand-switch" id="brandSwitch">
+          <button data-brand="" class="active">All</button>
+          <button data-brand="EFM">EFM</button>
+          <button data-brand="AFS">AFS</button>
+        </div>
+
+        <nav class="nav" id="nav">
+          <a href="#/dashboard" data-view="dashboard"><span class="nav__ico">◧</span> Dashboard</a>
+          <a href="#/cases" data-view="cases"><span class="nav__ico">◈</span> Cases <span class="nav__badge" id="badgeCases"></span></a>
+          <a href="#/pipeline" data-view="pipeline"><span class="nav__ico">◭</span> Sales Pipeline</a>
+          <a href="#/accounts" data-view="accounts"><span class="nav__ico">◨</span> Accounts</a>
+          <a href="#/shipments" data-view="shipments"><span class="nav__ico">◎</span> Shipments</a>
+          <a href="#/events" data-view="events"><span class="nav__ico">⚡</span> efmAPP Feed <span class="nav__badge nav__badge--live" id="badgeEvents"></span></a>
+        </nav>
+
+        <div class="sidebar__foot">
+          <button id="simulateBtn" class="btn btn--ghost btn--block" title="Post a synthetic efmAPP status event">
+            ⚡ Simulate efmAPP event
+          </button>
+          <button id="themeBtn" class="btn btn--ghost btn--block">◐ Theme</button>
+          <div class="sidebar__note">Status events feed the CS desk in real time.</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar__title" id="viewTitle">Dashboard</div>
+          <div class="topbar__actions" id="topbarActions"></div>
+        </header>
+        <div class="view" id="view"><div class="loading">Loading…</div></div>
+      </main>
+    </div>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <aside class="drawer" id="drawer" hidden></aside>
+
+    <div class="toast-wrap" id="toasts"></div>
+
+    <!-- Modal host -->
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <div class="modal" id="modal"></div>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

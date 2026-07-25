@@ -1,0 +1,30 @@
+{
+  "name": "efm-afs-4pl-crm",
+  "version": "1.0.0",
+  "description": "4PL CRM for EFM & AFS — case management, sales pipeline, account management, and live efmAPP status-event ingestion for customer service agents.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js --reset",
+    "simulate": "node server/simulate.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "keywords": [
+    "crm",
+    "4pl",
+    "logistics",
+    "efm",
+    "afs",
+    "case-management",
+    "sales-pipeline"
+  ],
+  "license": "MIT"
+}
