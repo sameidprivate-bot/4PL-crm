@@ -61,6 +61,33 @@ export const api = {
   salesOverview: (q) => req('GET', '/sales/overview' + qs(q)),
   addDealActivity: (id, b) => req('POST', `/deals/${id}/activities`, b),
 
+  priceReviews: (q) => req('GET', '/price-reviews' + qs(q)),
+  createPriceReview: (b) => req('POST', '/price-reviews', b),
+  updatePriceReview: (id, b) => req('PATCH', `/price-reviews/${id}`, b),
+
+  requests: (q) => req('GET', '/requests' + qs(q)),
+  createRequest: (b) => req('POST', '/requests', b),
+  updateRequest: (id, b) => req('PATCH', `/requests/${id}`, b),
+
+  risks: (q) => req('GET', '/risks' + qs(q)),
+  createRisk: (b) => req('POST', '/risks', b),
+  updateRisk: (id, b) => req('PATCH', `/risks/${id}`, b),
+
+  implementations: (q) => req('GET', '/implementations' + qs(q)),
+  createImplementation: (b) => req('POST', '/implementations', b),
+  updateImplementation: (id, b) => req('PATCH', `/implementations/${id}`, b),
+
+  creditClaims: (q) => req('GET', '/credit-claims' + qs(q)),
+  createCreditClaim: (b) => req('POST', '/credit-claims', b),
+  updateCreditClaim: (id, b) => req('PATCH', `/credit-claims/${id}`, b),
+
+  chatSessions: () => req('GET', '/chat/sessions'),
+  chatSession: (id) => req('GET', `/chat/sessions/${id}`),
+  createChat: (b) => req('POST', '/chat/sessions', b),
+  chatSend: (id, b) => req('POST', `/chat/sessions/${id}/messages`, b),
+  chatRead: (id) => req('POST', `/chat/sessions/${id}/read`),
+  chatToCase: (id) => req('POST', `/chat/sessions/${id}/case`),
+
   events: (q) => req('GET', '/events' + qs(q)),
   sendEvent: (b) => req('POST', '/events/efmapp', b),
 };

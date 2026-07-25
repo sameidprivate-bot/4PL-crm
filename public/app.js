@@ -4,7 +4,7 @@ import {
   el, fmtMoney, fmtDate, fmtDateTime, timeAgo, badge, brandChip,
   priorityBadge, statusBadge, slaBadge, healthBadge, shipmentStatusBadge,
   eventIcon, titleCase, toast, escAttr, escHtml, docTypeBadge, docMeta, actionStatusBadge,
-  carrierStatusBadge, responsibilityBadge, quoteStatusBadge,
+  carrierStatusBadge, responsibilityBadge, quoteStatusBadge, opStatusBadge, severityBadge,
 } from './ui.js';
 
 const state = {
@@ -28,6 +28,14 @@ function closeDrawer() {
   drawer.hidden = true;
   drawerBackdrop.hidden = true;
   drawer.innerHTML = '';
+  state.openAccountId = null;
+}
+
+// After creating/updating an account-ops record: refresh the open account
+// drawer if there is one, otherwise re-render the current view.
+function afterOpChange() {
+  if (state.openAccountId && !drawer.hidden) openAccountDrawer(state.openAccountId);
+  else router();
 }
 drawerBackdrop.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (e) => {
@@ -52,6 +60,7 @@ const routes = {
   pipeline: renderSales, // alias
   carriers: renderCarriers,
   accounts: renderAccounts,
+  ops: renderAccountOps,
   shipments: renderShipments,
   events: renderEvents,
 };
@@ -61,6 +70,7 @@ const TITLES = {
   sales: 'Sales',
   carriers: 'Carriers',
   accounts: 'Account Management',
+  ops: 'Account Operations',
   shipments: 'Shipments',
   events: 'efmAPP Status Feed',
 };
@@ -111,6 +121,8 @@ async function refreshBadges() {
     eb.textContent = dash.kpis.exceptionsToday ? `${dash.kpis.exceptionsToday}!` : '';
     const carb = document.getElementById('badgeCarriers');
     if (carb) carb.textContent = dash.kpis.casesWithCarrier || '';
+    const ob = document.getElementById('badgeOps');
+    if (ob) ob.textContent = (dash.kpis.openRisks || 0) + (dash.kpis.openClaims || 0) || '';
   } catch { /* ignore */ }
 }
 
@@ -135,6 +147,10 @@ async function renderDashboard(host) {
     { label: 'Won (closed)', value: fmtMoney(k.wonValue), sub: 'this dataset', cls: 'kpi--good' },
     { label: 'Accounts', value: k.accounts, sub: `${k.atRiskAccounts} at-risk`, cls: k.atRiskAccounts ? 'kpi--alert' : '' },
     { label: 'With carrier', value: k.casesWithCarrier ?? 0, sub: 'cases to resolve', cls: k.casesWithCarrier ? 'kpi--alert' : '' },
+    { label: 'Revenue at risk', value: fmtMoney(k.revenueAtRisk ?? 0), sub: `${k.openRisks ?? 0} open risks`, cls: k.openRisks ? 'kpi--alert' : '' },
+    { label: 'Credit claims', value: k.openClaims ?? 0, sub: `${fmtMoney(k.openClaimsValue ?? 0)} open`, cls: k.openClaims ? 'kpi--alert' : '' },
+    { label: 'Implementations', value: k.activeImplementations ?? 0, sub: 'in progress' },
+    { label: 'Price reviews due', value: k.priceReviewsDue ?? 0, sub: 'within 60 days' },
     { label: 'Account actions', value: k.openActions ?? 0, sub: `${k.overdueActions ?? 0} overdue`, cls: k.overdueActions ? 'kpi--alert' : '' },
     { label: 'Agreements expiring', value: k.expiringAgreements ?? 0, sub: 'within 60 days', cls: k.expiringAgreements ? 'kpi--alert' : '' },
   ];
@@ -1030,6 +1046,7 @@ function accountCard(a) {
 
 async function openAccountDrawer(id) {
   const a = await api.account(id);
+  state.openAccountId = id;
   const contacts = a.contacts.map((c) => `
     <div class="inline-item">
       <div><div class="cell-strong">${c.name}${c.primary ? ' <span class="badge b-blue" style="padding:1px 6px">primary</span>' : ''}</div><div class="cell-sub">${c.title || ''}</div></div>
@@ -1073,6 +1090,19 @@ async function openAccountDrawer(id) {
   const activities = a.activities.slice(0, 8).map((x) => `
     <div class="timeline__item"><div class="timeline__msg">${titleCase(x.type)}: ${escHtml(x.subject)}</div><div class="timeline__time">${fmtDateTime(x.at)}</div></div>`).join('') || '<div class="cell-sub">No activity.</div>';
 
+  // Account-ops registers (compact lists in the drawer).
+  const listOr = (arr, fn, empty) => arr && arr.length ? arr.map(fn).join('') : `<div class="cell-sub">${empty}</div>`;
+  const prvHtml = listOr(a.priceReviews, (r) => `
+    <div class="inline-item clickable" data-prv="${r.id}"><div><div class="cell-strong">${escHtml(r.title)}</div><div class="cell-sub">${titleCase(r.scope)} · ${r.increasePercent != null ? r.increasePercent + '%' : '—'} · eff ${r.effectiveDate ? fmtDate(r.effectiveDate) : 'TBC'}</div></div>${opStatusBadge(r.status)}</div>`, 'No price reviews.');
+  const reqHtml = listOr(a.requests, (r) => `
+    <div class="inline-item clickable" data-req="${r.id}"><div><div class="cell-strong">${escHtml(r.title)}</div><div class="cell-sub">${titleCase(r.type)}</div></div><div class="chips">${priorityBadge(r.priority)} ${opStatusBadge(r.status)}</div></div>`, 'No requests.');
+  const riskHtml = listOr(a.risks, (r) => `
+    <div class="inline-item clickable" data-risk="${r.id}"><div><div class="cell-strong">${escHtml(r.title)}</div><div class="cell-sub">${titleCase(r.category)}${r.revenueAtRisk ? ' · ' + fmtMoney(r.revenueAtRisk) + ' at risk' : ''}</div></div><div class="chips">${severityBadge(r.severity)} ${opStatusBadge(r.status)}</div></div>`, 'No risks flagged.');
+  const impHtml = listOr(a.implementations, (r) => `
+    <div class="inline-item clickable" data-imp="${r.id}"><div><div class="cell-strong">${escHtml(r.title)}</div><div class="cell-sub">${titleCase(r.type)}${r.goLiveDate ? ' · go-live ' + fmtDate(r.goLiveDate) : ''} · ${r.progress}%</div></div>${opStatusBadge(r.status)}</div>`, 'No implementations.');
+  const clmHtml = listOr(a.creditClaims, (r) => `
+    <div class="inline-item clickable" data-clm="${r.id}"><div><div class="cell-strong">${r.reference} · ${fmtMoney(r.amount)}</div><div class="cell-sub">${titleCase(r.reason)} · ${r.against === 'carrier' ? 'vs ' + escHtml(r.carrierName || 'carrier') : 'internal'}</div></div>${opStatusBadge(r.status)}</div>`, 'No credit claims.');
+
   openDrawer(`
     <div class="drawer__head">
       <button class="drawer__close" data-close>×</button>
@@ -1101,6 +1131,26 @@ async function openAccountDrawer(id) {
         <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">✔ Actions <span class="muted">${openActionCount} open</span></h4><button class="btn btn--sm" id="addAction">+ Add</button></div>
         <div class="inline-list">${actionsHtml}</div>
       </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">💲 Price reviews</h4><button class="btn btn--sm" id="addPrv">+ Add</button></div>
+        <div class="inline-list">${prvHtml}</div>
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">⚠ At-risk</h4><button class="btn btn--sm" id="addRisk">+ Flag</button></div>
+        <div class="inline-list">${riskHtml}</div>
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">🧩 Requests</h4><button class="btn btn--sm" id="addReq">+ Add</button></div>
+        <div class="inline-list">${reqHtml}</div>
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">🚀 Implementations</h4><button class="btn btn--sm" id="addImp">+ Add</button></div>
+        <div class="inline-list">${impHtml}</div>
+      </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">💳 Credit claims</h4><button class="btn btn--sm" id="addClm">+ Add</button></div>
+        <div class="inline-list">${clmHtml}</div>
+      </div>
       <div class="drawer__section"><h4>Contacts</h4><div class="inline-list">${contacts}</div></div>
       <div class="drawer__section"><h4>Open cases</h4><div class="inline-list">${cases}</div></div>
       <div class="drawer__section"><h4>Deals</h4><div class="inline-list">${deals}</div></div>
@@ -1128,6 +1178,20 @@ async function openAccountDrawer(id) {
   };
   drawer.querySelector('#addDoc').onclick = () => openAddDocumentModal(id);
   drawer.querySelector('#addAction').onclick = () => openAddActionModal(id);
+  // Account-ops add buttons (pre-fill this account).
+  drawer.querySelector('#addPrv').onclick = () => openPriceReviewModal(id);
+  drawer.querySelector('#addRisk').onclick = () => openRiskModal(id);
+  drawer.querySelector('#addReq').onclick = () => openRequestModal(id);
+  drawer.querySelector('#addImp').onclick = () => openImplementationModal(id);
+  drawer.querySelector('#addClm').onclick = () => openClaimModal(id);
+  // Account-ops item clicks open the respective register drawer.
+  const byId = (arr) => Object.fromEntries((arr || []).map((r) => [r.id, r]));
+  const prvMap = byId(a.priceReviews), riskMap = byId(a.risks), reqMap = byId(a.requests), impMap = byId(a.implementations), clmMap = byId(a.creditClaims);
+  drawer.querySelectorAll('[data-prv]').forEach((n) => n.onclick = () => openPriceReviewDrawer(prvMap[n.dataset.prv]));
+  drawer.querySelectorAll('[data-risk]').forEach((n) => n.onclick = () => openRiskDrawer(riskMap[n.dataset.risk]));
+  drawer.querySelectorAll('[data-req]').forEach((n) => n.onclick = () => openRequestDrawer(reqMap[n.dataset.req]));
+  drawer.querySelectorAll('[data-imp]').forEach((n) => n.onclick = () => openImplementationDrawer(impMap[n.dataset.imp]));
+  drawer.querySelectorAll('[data-clm]').forEach((n) => n.onclick = () => openClaimDrawer(clmMap[n.dataset.clm]));
   // Toggle an action done / not-done.
   drawer.querySelectorAll('[data-action-toggle]').forEach((n) => n.onclick = async (e) => {
     e.stopPropagation();
@@ -1516,6 +1580,461 @@ function openCarrierModal() {
 }
 
 // ============================================================================
+// ACCOUNT OPS (Price reviews · At-Risk · Requests · Implementations · Claims)
+// ============================================================================
+function opSelects() {
+  const m = state.meta;
+  return {
+    acc: (sel, blank = '— account —') => `<option value="">${blank}</option>` + (m.accountsLite || []).map((a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${escHtml(a.name)}</option>`).join(''),
+    carr: (sel, blank = '— carrier —') => `<option value="">${blank}</option>` + (m.carriers || []).map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${escHtml(c.name)}</option>`).join(''),
+    agent: (sel, blank = '— owner —') => `<option value="">${blank}</option>` + m.agents.map((a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${a.name}</option>`).join(''),
+    en: (list, sel) => list.map((v) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${titleCase(v)}</option>`).join(''),
+  };
+}
+
+async function renderAccountOps(host) {
+  const tabs = [
+    { key: '', label: 'Price Reviews' },
+    { key: 'risk', label: 'At-Risk' },
+    { key: 'requests', label: 'Requests' },
+    { key: 'implementations', label: 'Implementations' },
+    { key: 'claims', label: 'Credit Claims' },
+  ];
+  const tab = state.tab || '';
+  host.innerHTML = tabBar('ops', tabs, tab) + `<div id="opsContent"></div>`;
+  const c = host.querySelector('#opsContent');
+  if (tab === 'risk') return renderRisks(c);
+  if (tab === 'requests') return renderRequests(c);
+  if (tab === 'implementations') return renderImplementations(c);
+  if (tab === 'claims') return renderCreditClaims(c);
+  return renderPriceReviews(c);
+}
+
+// ---- Price reviews ----
+async function renderPriceReviews(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newPrv">+ New price review</button>`;
+  document.getElementById('newPrv').onclick = () => openPriceReviewModal();
+  const rows = await api.priceReviews(bq());
+  host.innerHTML = `
+    <p class="cell-sub" style="margin:0 0 14px">Annual price reviews — per carrier/customer combination, customer, carrier, lane or network, each with its own increase date.</p>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Review</th><th>Scope</th><th>Account</th><th>Carrier</th><th>Method</th><th>Increase</th><th>Effective</th><th>Status</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `
+        <tr class="clickable" data-prv="${r.id}">
+          <td class="cell-strong">${escHtml(r.title)}</td>
+          <td>${badge(titleCase(r.scope), 'b-slate')}</td>
+          <td>${escHtml(r.accountName || '—')}</td>
+          <td>${escHtml(r.carrierName || '—')}</td>
+          <td class="cell-sub">${titleCase(r.method)}</td>
+          <td class="cell-strong">${r.increasePercent != null ? r.increasePercent + '%' : '—'}</td>
+          <td class="cell-sub">${r.effectiveDate ? fmtDate(r.effectiveDate) : '—'}</td>
+          <td>${opStatusBadge(r.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="8"><div class="empty">No price reviews.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+  host.querySelectorAll('[data-prv]').forEach((tr) => tr.onclick = () => openPriceReviewDrawer(map[tr.dataset.prv]));
+}
+
+function openPriceReviewModal(accountId) {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">New annual price review</div>
+    <div class="modal__body">
+      <label class="field"><span>Title</span><input id="p-title" placeholder="e.g. Customer × Carrier — FY27 CPI increase" /></label>
+      <div class="form-row">
+        <label class="field"><span>Scope</span><select id="p-scope">${s.en(m.priceReviewScopes, 'carrier-customer')}</select></label>
+        <label class="field"><span>Method</span><select id="p-method">${s.en(m.priceReviewMethods, 'cpi')}</select></label>
+        <label class="field"><span>Account</span><select id="p-account">${s.acc(accountId)}</select></label>
+        <label class="field"><span>Carrier</span><select id="p-carrier">${s.carr()}</select></label>
+        <label class="field"><span>Increase %</span><input id="p-pct" type="number" step="0.1" placeholder="e.g. 3.8" /></label>
+        <label class="field"><span>Baseline value (AUD)</span><input id="p-base" type="number" /></label>
+        <label class="field"><span>Review date</span><input id="p-review" type="date" /></label>
+        <label class="field"><span>Effective (increase) date</span><input id="p-eff" type="date" /></label>
+        <label class="field"><span>Status</span><select id="p-status">${s.en(m.priceReviewStatuses, 'planned')}</select></label>
+        <label class="field"><span>Owner</span><select id="p-owner">${s.agent()}</select></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea id="p-notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createPrv">Create</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createPrv').onclick = async () => {
+    await api.createPriceReview({
+      title: val('p-title'), scope: val('p-scope'), method: val('p-method'), accountId: val('p-account') || null, carrierId: val('p-carrier') || null,
+      increasePercent: val('p-pct') || null, baselineValue: val('p-base') || null, reviewDate: val('p-review') || null, effectiveDate: val('p-eff') || null,
+      status: val('p-status'), ownerId: val('p-owner') || null, notes: val('p-notes'),
+    });
+    closeModal(); toast('Price review created', '', 'success'); afterOpChange();
+  };
+}
+
+function openPriceReviewDrawer(r) {
+  if (!r) return; const s = opSelects(); const m = state.meta;
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${r.id} · ${brandChip(r.brand)}</div>
+      <div class="drawer__title">${escHtml(r.title)}</div>
+      <div class="chips" style="margin-top:10px">${badge(titleCase(r.scope), 'b-slate')} ${opStatusBadge(r.status)}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><dl class="dl">
+        <dt>Account</dt><dd>${escHtml(r.accountName || '—')}</dd>
+        <dt>Carrier</dt><dd>${escHtml(r.carrierName || '—')}</dd>
+        <dt>Method</dt><dd>${titleCase(r.method)}</dd>
+        <dt>Increase</dt><dd class="cell-strong">${r.increasePercent != null ? r.increasePercent + '%' : '—'}${r.cpiRate != null ? ` (CPI ${r.cpiRate}%)` : ''}</dd>
+        <dt>Baseline</dt><dd>${r.baselineValue != null ? fmtMoney(r.baselineValue) : '—'}${r.baselineValue && r.increasePercent ? ` → +${fmtMoney(Math.round(r.baselineValue * r.increasePercent / 100))}/yr` : ''}</dd>
+        <dt>Review date</dt><dd>${r.reviewDate ? fmtDate(r.reviewDate) : '—'}</dd>
+        <dt>Effective date</dt><dd>${r.effectiveDate ? fmtDate(r.effectiveDate) : '—'}</dd>
+        <dt>Owner</dt><dd>${r.ownerName || '—'}</dd>
+      </dl>${r.notes ? `<p class="cell-sub" style="margin-top:10px">${escHtml(r.notes)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Update</h4>
+        <div class="form-row">
+          <label class="field"><span>Status</span><select id="e-status">${s.en(m.priceReviewStatuses, r.status)}</select></label>
+          <label class="field"><span>Increase %</span><input id="e-pct" type="number" step="0.1" value="${r.increasePercent ?? ''}" /></label>
+          <label class="field"><span>Effective date</span><input id="e-eff" type="date" value="${r.effectiveDate ? r.effectiveDate.slice(0, 10) : ''}" /></label>
+        </div>
+        <button class="btn btn--primary btn--sm" id="savePrv">Save</button>
+      </div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#savePrv').onclick = async () => {
+    await api.updatePriceReview(r.id, { status: val('e-status'), increasePercent: val('e-pct') || null, effectiveDate: val('e-eff') || null });
+    toast('Price review updated', r.id, 'success'); closeDrawer(); router();
+  };
+}
+
+// ---- At-Risk ----
+async function renderRisks(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newRisk">+ Flag risk</button>`;
+  document.getElementById('newRisk').onclick = () => openRiskModal();
+  const rows = await api.risks(bq());
+  const totalRev = rows.filter((r) => !['mitigated', 'closed'].includes(r.status)).reduce((s, r) => s + (r.revenueAtRisk || 0), 0);
+  host.innerHTML = `
+    <div class="toolbar"><span class="badge b-red">Revenue at risk: ${fmtMoney(totalRev)}</span><div class="spacer"></div><span class="muted">${rows.length} risk(s)</span></div>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Account</th><th>Risk</th><th>Category</th><th>Severity</th><th>Rev at risk</th><th>Owner</th><th>Review</th><th>Status</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `
+        <tr class="clickable" data-risk="${r.id}">
+          <td class="cell-strong">${escHtml(r.accountName || '—')} ${brandChip(r.brand)}</td>
+          <td>${escHtml(r.title)}</td>
+          <td>${badge(titleCase(r.category), 'b-slate')}</td>
+          <td>${severityBadge(r.severity)}</td>
+          <td class="cell-strong">${r.revenueAtRisk != null ? fmtMoney(r.revenueAtRisk) : '—'}</td>
+          <td class="cell-sub">${r.ownerName || '—'}</td>
+          <td class="cell-sub">${r.reviewDate ? fmtDate(r.reviewDate) : '—'}</td>
+          <td>${opStatusBadge(r.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="8"><div class="empty">No risks flagged 🎉</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+  host.querySelectorAll('[data-risk]').forEach((tr) => tr.onclick = () => openRiskDrawer(map[tr.dataset.risk]));
+}
+
+function openRiskModal(accountId) {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">Flag account risk</div>
+    <div class="modal__body">
+      <label class="field"><span>Account *</span><select id="r-account">${s.acc(accountId)}</select></label>
+      <label class="field"><span>Risk title</span><input id="r-title" placeholder="e.g. Competitor pitching key lanes" /></label>
+      <div class="form-row">
+        <label class="field"><span>Category</span><select id="r-cat">${s.en(m.riskCategories, 'service')}</select></label>
+        <label class="field"><span>Severity</span><select id="r-sev">${s.en(m.riskSeverities, 'medium')}</select></label>
+        <label class="field"><span>Revenue at risk (AUD)</span><input id="r-rev" type="number" /></label>
+        <label class="field"><span>Owner</span><select id="r-owner">${s.agent()}</select></label>
+        <label class="field"><span>Review date</span><input id="r-review" type="date" /></label>
+        <label class="field"><span>Status</span><select id="r-status">${s.en(m.riskStatuses, 'open')}</select></label>
+      </div>
+      <label class="field"><span>Mitigation plan</span><textarea id="r-plan" rows="3"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createRisk">Flag risk</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createRisk').onclick = async () => {
+    if (!val('r-account')) return toast('Account required', '', 'warn');
+    await api.createRisk({ accountId: val('r-account'), title: val('r-title'), category: val('r-cat'), severity: val('r-sev'), revenueAtRisk: val('r-rev') || null, ownerId: val('r-owner') || null, reviewDate: val('r-review') || null, status: val('r-status'), mitigationPlan: val('r-plan') });
+    closeModal(); toast('Risk flagged', '', 'warn'); afterOpChange();
+  };
+}
+
+function openRiskDrawer(r) {
+  if (!r) return; const s = opSelects(); const m = state.meta;
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${r.id} · ${brandChip(r.brand)} · ${escHtml(r.accountName || '')}</div>
+      <div class="drawer__title">${escHtml(r.title)}</div>
+      <div class="chips" style="margin-top:10px">${severityBadge(r.severity)} ${opStatusBadge(r.status)} ${badge(titleCase(r.category), 'b-slate')}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><dl class="dl">
+        <dt>Revenue at risk</dt><dd class="cell-strong">${r.revenueAtRisk != null ? fmtMoney(r.revenueAtRisk) : '—'}</dd>
+        <dt>Likelihood</dt><dd>${titleCase(r.likelihood || '—')}</dd>
+        <dt>Owner</dt><dd>${r.ownerName || '—'}</dd>
+        <dt>Review date</dt><dd>${r.reviewDate ? fmtDate(r.reviewDate) : '—'}</dd>
+      </dl>${r.mitigationPlan ? `<h4 style="margin-top:14px">Mitigation plan</h4><p class="cell-sub">${escHtml(r.mitigationPlan)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Update</h4>
+        <div class="form-row">
+          <label class="field"><span>Status</span><select id="e-status">${s.en(m.riskStatuses, r.status)}</select></label>
+          <label class="field"><span>Severity</span><select id="e-sev">${s.en(m.riskSeverities, r.severity)}</select></label>
+        </div>
+        <label class="field"><span>Mitigation plan</span><textarea id="e-plan" rows="3">${escHtml(r.mitigationPlan || '')}</textarea></label>
+        <button class="btn btn--primary btn--sm" id="saveRisk">Save</button>
+      </div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveRisk').onclick = async () => {
+    await api.updateRisk(r.id, { status: val('e-status'), severity: val('e-sev'), mitigationPlan: val('e-plan') });
+    toast('Risk updated', r.id, 'success'); closeDrawer(); router();
+  };
+}
+
+// ---- Requests ----
+async function renderRequests(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newReq">+ New request</button>`;
+  document.getElementById('newReq').onclick = () => openRequestModal();
+  const rows = await api.requests(bq());
+  host.innerHTML = `
+    <p class="cell-sub" style="margin:0 0 14px">Solution design, engineering, analytics, data & integration requests.</p>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Request</th><th>Type</th><th>Account</th><th>Priority</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `
+        <tr class="clickable" data-req="${r.id}">
+          <td class="cell-strong">${escHtml(r.title)}</td>
+          <td>${badge(titleCase(r.type), 'b-violet')}</td>
+          <td>${escHtml(r.accountName || '—')} ${brandChip(r.brand)}</td>
+          <td>${priorityBadge(r.priority)}</td>
+          <td class="cell-sub">${r.ownerName || '—'}</td>
+          <td class="cell-sub">${r.dueDate ? fmtDate(r.dueDate) : '—'}</td>
+          <td>${opStatusBadge(r.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No requests.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+  host.querySelectorAll('[data-req]').forEach((tr) => tr.onclick = () => openRequestDrawer(map[tr.dataset.req]));
+}
+
+function openRequestModal(accountId) {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">New request</div>
+    <div class="modal__body">
+      <label class="field"><span>Title *</span><input id="q-title" placeholder="e.g. Cold-chain analytics dashboard" /></label>
+      <div class="form-row">
+        <label class="field"><span>Type</span><select id="q-type">${s.en(m.requestTypes, 'solution-design')}</select></label>
+        <label class="field"><span>Account</span><select id="q-account">${s.acc(accountId)}</select></label>
+        <label class="field"><span>Priority</span><select id="q-priority">${s.en(m.casePriorities, 'medium')}</select></label>
+        <label class="field"><span>Owner</span><select id="q-owner">${s.agent()}</select></label>
+        <label class="field"><span>Requested by</span><input id="q-by" /></label>
+        <label class="field"><span>Due date</span><input id="q-due" type="date" /></label>
+      </div>
+      <label class="field"><span>Description</span><textarea id="q-desc" rows="3"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createReq">Create</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createReq').onclick = async () => {
+    if (!val('q-title')) return toast('Title required', '', 'warn');
+    await api.createRequest({ title: val('q-title'), type: val('q-type'), accountId: val('q-account') || null, priority: val('q-priority'), ownerId: val('q-owner') || null, requestedBy: val('q-by'), dueDate: val('q-due') || null, description: val('q-desc') });
+    closeModal(); toast('Request created', '', 'success'); afterOpChange();
+  };
+}
+
+function openRequestDrawer(r) {
+  if (!r) return; const s = opSelects(); const m = state.meta;
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${r.id} · ${badge(titleCase(r.type), 'b-violet')}</div>
+      <div class="drawer__title">${escHtml(r.title)}</div>
+      <div class="chips" style="margin-top:10px">${priorityBadge(r.priority)} ${opStatusBadge(r.status)}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><dl class="dl">
+        <dt>Account</dt><dd>${escHtml(r.accountName || '—')}</dd>
+        <dt>Requested by</dt><dd>${escHtml(r.requestedBy || '—')}</dd>
+        <dt>Owner</dt><dd>${r.ownerName || '—'}</dd>
+        <dt>Due</dt><dd>${r.dueDate ? fmtDate(r.dueDate) : '—'}</dd>
+      </dl>${r.description ? `<p class="cell-sub" style="margin-top:10px;white-space:pre-wrap">${escHtml(r.description)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Update</h4>
+        <div class="form-row">
+          <label class="field"><span>Status</span><select id="e-status">${s.en(m.requestStatuses, r.status)}</select></label>
+          <label class="field"><span>Owner</span><select id="e-owner">${s.agent(r.ownerId)}</select></label>
+        </div>
+        <button class="btn btn--primary btn--sm" id="saveReq">Save</button>
+      </div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveReq').onclick = async () => {
+    await api.updateRequest(r.id, { status: val('e-status'), ownerId: val('e-owner') || null });
+    toast('Request updated', r.id, 'success'); closeDrawer(); router();
+  };
+}
+
+// ---- Implementations ----
+async function renderImplementations(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newImp">+ New implementation</button>`;
+  document.getElementById('newImp').onclick = () => openImplementationModal();
+  const rows = await api.implementations(bq());
+  host.innerHTML = `
+    <p class="cell-sub" style="margin:0 0 14px">Onboarding new customers and changes to existing customers (incl. carrier changes).</p>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Implementation</th><th>Type</th><th>Account</th><th>Change</th><th>Go-live</th><th>Progress</th><th>Status</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `
+        <tr class="clickable" data-imp="${r.id}">
+          <td class="cell-strong">${escHtml(r.title)}</td>
+          <td>${badge(titleCase(r.type), 'b-blue')}</td>
+          <td>${escHtml(r.accountName || '—')} ${brandChip(r.brand)}</td>
+          <td class="cell-sub">${r.type === 'carrier-change' && (r.fromCarrierName || r.toCarrierName) ? `${escHtml(r.fromCarrierName || '?')} → ${escHtml(r.toCarrierName || '?')}` : '—'}</td>
+          <td class="cell-sub">${r.goLiveDate ? fmtDate(r.goLiveDate) : '—'}</td>
+          <td style="min-width:110px"><div class="probbar"><i style="width:${r.progress}%;background:${r.progress >= 100 ? 'var(--green)' : 'var(--primary)'}"></i></div><span class="cell-sub">${r.progress}%</span></td>
+          <td>${opStatusBadge(r.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No implementations.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+  host.querySelectorAll('[data-imp]').forEach((tr) => tr.onclick = () => openImplementationDrawer(map[tr.dataset.imp]));
+}
+
+function openImplementationModal(accountId) {
+  const s = opSelects(); const m = state.meta;
+  const carrierRow = `<div class="form-row" id="imp-carriers" hidden>
+    <label class="field"><span>From carrier</span><select id="i-from">${s.carr()}</select></label>
+    <label class="field"><span>To carrier</span><select id="i-to">${s.carr()}</select></label></div>`;
+  openModal(`
+    <div class="modal__head">New implementation</div>
+    <div class="modal__body">
+      <label class="field"><span>Title</span><input id="i-title" placeholder="e.g. New customer onboarding / Carrier change" /></label>
+      <div class="form-row">
+        <label class="field"><span>Type</span><select id="i-type">${s.en(m.implementationTypes, 'new-customer')}</select></label>
+        <label class="field"><span>Account</span><select id="i-account">${s.acc(accountId)}</select></label>
+        <label class="field"><span>Status</span><select id="i-status">${s.en(m.implementationStatuses, 'planning')}</select></label>
+        <label class="field"><span>Go-live date</span><input id="i-golive" type="date" /></label>
+        <label class="field"><span>Owner</span><select id="i-owner">${s.agent()}</select></label>
+      </div>
+      ${carrierRow}
+      <label class="field"><span>Notes</span><textarea id="i-notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createImp">Create</button></div>`);
+  const typeSel = modalHost.querySelector('#i-type');
+  const toggleCarriers = () => { modalHost.querySelector('#imp-carriers').hidden = typeSel.value !== 'carrier-change'; };
+  typeSel.onchange = toggleCarriers; toggleCarriers();
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createImp').onclick = async () => {
+    await api.createImplementation({ title: val('i-title'), type: val('i-type'), accountId: val('i-account') || null, status: val('i-status'), goLiveDate: val('i-golive') || null, ownerId: val('i-owner') || null, fromCarrierId: val('i-from') || null, toCarrierId: val('i-to') || null, notes: val('i-notes') });
+    closeModal(); toast('Implementation created', '', 'success'); afterOpChange();
+  };
+}
+
+function openImplementationDrawer(r) {
+  if (!r) return; const s = opSelects(); const m = state.meta;
+  const checklist = (r.checklist || []).map((c) => `
+    <label class="inline-item" style="cursor:pointer"><span style="display:flex;gap:10px;align-items:center"><input type="checkbox" style="width:auto" ${c.done ? 'checked' : ''} data-cl="${c.id}" /> <span style="${c.done ? 'text-decoration:line-through;opacity:.6' : ''}">${escHtml(c.task)}</span></span></label>`).join('');
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${r.id} · ${badge(titleCase(r.type), 'b-blue')} · ${escHtml(r.accountName || '')}</div>
+      <div class="drawer__title">${escHtml(r.title)}</div>
+      <div class="chips" style="margin-top:10px">${opStatusBadge(r.status)} <span class="badge b-slate">${r.progress}% complete</span></div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><dl class="dl">
+        ${r.type === 'carrier-change' ? `<dt>Carrier change</dt><dd>${escHtml(r.fromCarrierName || '?')} → <b>${escHtml(r.toCarrierName || '?')}</b></dd>` : ''}
+        <dt>Go-live</dt><dd>${r.goLiveDate ? fmtDate(r.goLiveDate) : '—'}</dd>
+        <dt>Owner</dt><dd>${r.ownerName || '—'}</dd>
+      </dl>${r.notes ? `<p class="cell-sub" style="margin-top:10px">${escHtml(r.notes)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Checklist</h4><div class="inline-list">${checklist || '<div class="cell-sub">No tasks.</div>'}</div></div>
+      <div class="drawer__section"><h4>Status</h4><label class="field"><select id="e-status">${s.en(m.implementationStatuses, r.status)}</select></label><button class="btn btn--primary btn--sm" id="saveImp">Save status</button></div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  // Checklist toggles persist immediately.
+  drawer.querySelectorAll('[data-cl]').forEach((n) => n.onchange = async () => {
+    const checklist = (r.checklist || []).map((c) => c.id === n.dataset.cl ? { ...c, done: n.checked } : c);
+    r.checklist = checklist;
+    const u = await api.updateImplementation(r.id, { checklist });
+    r.progress = u.progress;
+  });
+  drawer.querySelector('#saveImp').onclick = async () => {
+    await api.updateImplementation(r.id, { status: val('e-status') });
+    toast('Implementation updated', r.id, 'success'); closeDrawer(); router();
+  };
+}
+
+// ---- Credit claims ----
+async function renderCreditClaims(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newClm">+ New claim</button>`;
+  document.getElementById('newClm').onclick = () => openClaimModal();
+  const rows = await api.creditClaims(bq());
+  const open = rows.filter((r) => !['credited', 'rejected'].includes(r.status));
+  host.innerHTML = `
+    <div class="toolbar"><span class="badge b-amber">Open claims: ${fmtMoney(open.reduce((s, r) => s + (r.amount || 0), 0))}</span><div class="spacer"></div><span class="muted">${rows.length} claim(s)</span></div>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Reference</th><th>Account</th><th>Carrier</th><th>Reason</th><th>Against</th><th>Amount</th><th>Lodged</th><th>Status</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `
+        <tr class="clickable" data-clm="${r.id}">
+          <td><span class="mono cell-strong">${r.reference}</span>${r.shipmentRef ? `<div class="cell-sub">${r.shipmentRef}</div>` : ''}</td>
+          <td>${escHtml(r.accountName || '—')} ${brandChip(r.brand)}</td>
+          <td>${escHtml(r.carrierName || '—')}</td>
+          <td>${badge(titleCase(r.reason), 'b-slate')}</td>
+          <td>${r.against === 'carrier' ? badge('Carrier', 'b-amber') : badge('Internal', 'b-blue')}</td>
+          <td class="cell-strong">${fmtMoney(r.amount)}</td>
+          <td class="cell-sub">${r.lodgedDate ? fmtDate(r.lodgedDate) : '—'}</td>
+          <td>${opStatusBadge(r.status)}</td>
+        </tr>`).join('') : `<tr><td colspan="8"><div class="empty">No credit claims.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+  host.querySelectorAll('[data-clm]').forEach((tr) => tr.onclick = () => openClaimDrawer(map[tr.dataset.clm]));
+}
+
+function openClaimModal(accountId) {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">New credit claim</div>
+    <div class="modal__body">
+      <div class="form-row">
+        <label class="field"><span>Account</span><select id="c-account">${s.acc(accountId)}</select></label>
+        <label class="field"><span>Carrier</span><select id="c-carrier">${s.carr()}</select></label>
+        <label class="field"><span>Reason</span><select id="c-reason">${s.en(m.claimReasons, 'service-failure')}</select></label>
+        <label class="field"><span>Against</span><select id="c-against">${s.en(m.claimAgainst, 'carrier')}</select></label>
+        <label class="field"><span>Amount (AUD)</span><input id="c-amount" type="number" /></label>
+        <label class="field"><span>Shipment ref</span><input id="c-ship" placeholder="e.g. EFM-CON-88301" /></label>
+        <label class="field"><span>Status</span><select id="c-status">${s.en(m.claimStatuses, 'draft')}</select></label>
+        <label class="field"><span>Owner</span><select id="c-owner">${s.agent()}</select></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea id="c-notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createClm">Create claim</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createClm').onclick = async () => {
+    await api.createCreditClaim({ accountId: val('c-account') || null, carrierId: val('c-carrier') || null, reason: val('c-reason'), against: val('c-against'), amount: val('c-amount') || 0, shipmentRef: val('c-ship') || null, status: val('c-status'), ownerId: val('c-owner') || null, notes: val('c-notes') });
+    closeModal(); toast('Credit claim created', '', 'success'); afterOpChange();
+  };
+}
+
+function openClaimDrawer(r) {
+  if (!r) return; const s = opSelects(); const m = state.meta;
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${r.reference} · ${brandChip(r.brand)}</div>
+      <div class="drawer__title">${fmtMoney(r.amount)} — ${titleCase(r.reason)}</div>
+      <div class="chips" style="margin-top:10px">${opStatusBadge(r.status)} ${r.against === 'carrier' ? badge('vs Carrier', 'b-amber') : badge('Internal', 'b-blue')}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><dl class="dl">
+        <dt>Account</dt><dd>${escHtml(r.accountName || '—')}</dd>
+        <dt>Carrier</dt><dd>${escHtml(r.carrierName || '—')}</dd>
+        <dt>Shipment</dt><dd class="mono">${r.shipmentRef || '—'}</dd>
+        <dt>Lodged</dt><dd>${r.lodgedDate ? fmtDate(r.lodgedDate) : '—'}</dd>
+        <dt>Resolved</dt><dd>${r.resolvedDate ? fmtDate(r.resolvedDate) : '—'}</dd>
+        <dt>Owner</dt><dd>${r.ownerName || '—'}</dd>
+      </dl>${r.notes ? `<p class="cell-sub" style="margin-top:10px">${escHtml(r.notes)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Update</h4>
+        <div class="form-row">
+          <label class="field"><span>Status</span><select id="e-status">${s.en(m.claimStatuses, r.status)}</select></label>
+          <label class="field"><span>Amount</span><input id="e-amount" type="number" value="${r.amount}" /></label>
+        </div>
+        <button class="btn btn--primary btn--sm" id="saveClm">Save</button>
+      </div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveClm').onclick = async () => {
+    await api.updateCreditClaim(r.id, { status: val('e-status'), amount: Number(val('e-amount')) });
+    toast('Claim updated', r.reference, 'success'); closeDrawer(); router();
+  };
+}
+
+// ============================================================================
 // EVENTS (efmAPP feed)
 // ============================================================================
 async function renderEvents(host) {
@@ -1596,8 +2115,116 @@ document.documentElement.setAttribute('data-theme', localStorage.getItem('theme'
 // Auto-refresh the events view periodically.
 setInterval(() => { if (state.view === 'events' && drawer.hidden && modalBackdrop.hidden) router(); }, 5000);
 
+// ============================================================================
+// LIVE CHAT widget
+// ============================================================================
+const chat = { open: false, sessionId: null, poll: null };
+const chatFab = document.getElementById('chatFab');
+const chatPanel = document.getElementById('chatPanel');
+const chatFabBadge = document.getElementById('chatFabBadge');
+
+async function refreshChatBadge() {
+  try {
+    const sessions = await api.chatSessions();
+    const unread = sessions.reduce((s, c) => s + (c.unread || 0), 0);
+    chatFabBadge.textContent = unread || '';
+    chatFabBadge.hidden = !unread;
+    return sessions;
+  } catch { return []; }
+}
+
+async function openChat() {
+  chat.open = true;
+  chatPanel.hidden = false;
+  await renderChatList();
+  chat.poll = setInterval(async () => {
+    if (chat.sessionId) await renderChatThread(chat.sessionId, true);
+    else await renderChatList();
+    refreshChatBadge();
+  }, 4000);
+}
+function closeChat() {
+  chat.open = false; chat.sessionId = null; chatPanel.hidden = true;
+  if (chat.poll) clearInterval(chat.poll);
+}
+chatFab.onclick = () => (chat.open ? closeChat() : openChat());
+
+async function renderChatList() {
+  const sessions = await api.chatSessions();
+  chatPanel.innerHTML = `
+    <div class="chat-head">
+      <div><b>Live chat</b><div class="chat-sub">${sessions.length} conversation(s)</div></div>
+      <button class="chat-x" data-cx>×</button>
+    </div>
+    <div class="chat-list">
+      ${sessions.map((s) => `
+        <div class="chat-listitem" data-cs="${s.id}">
+          <div class="chat-avatar">${(s.customerName || '?').slice(0, 1)}</div>
+          <div style="flex:1;min-width:0">
+            <div class="chat-name">${escHtml(s.customerName)} ${s.unread ? `<span class="chat-unread">${s.unread}</span>` : ''}</div>
+            <div class="chat-preview">${escHtml(s.lastMessage ? s.lastMessage.text : s.subject)}</div>
+          </div>
+          <div class="chat-time">${s.lastMessageAt ? timeAgo(s.lastMessageAt) : ''}</div>
+        </div>`).join('') || '<div class="cell-sub" style="padding:16px">No conversations.</div>'}
+    </div>
+    <div class="chat-foot"><button class="btn btn--sm btn--block" data-cnew>+ New chat</button></div>`;
+  chatPanel.querySelector('[data-cx]').onclick = closeChat;
+  chatPanel.querySelector('[data-cnew]').onclick = async () => {
+    const s = await api.createChat({ customerName: 'New visitor', subject: 'New enquiry', message: 'Hi, I have a question about a shipment.' });
+    chat.sessionId = s.id; renderChatThread(s.id);
+  };
+  chatPanel.querySelectorAll('[data-cs]').forEach((n) => n.onclick = () => { chat.sessionId = n.dataset.cs; renderChatThread(n.dataset.cs); });
+}
+
+async function renderChatThread(id, silent) {
+  const s = await api.chatSession(id);
+  if (!silent) api.chatRead(id).then(refreshChatBadge);
+  const atBottom = (() => { const b = chatPanel.querySelector('.chat-msgs'); return !b || b.scrollHeight - b.scrollTop - b.clientHeight < 60; })();
+  chatPanel.innerHTML = `
+    <div class="chat-head">
+      <button class="chat-x" data-back>‹</button>
+      <div style="flex:1"><b>${escHtml(s.customerName)}</b><div class="chat-sub">${escHtml(s.accountName || s.subject)}</div></div>
+      <button class="chat-x" data-cx>×</button>
+    </div>
+    <div class="chat-msgs">
+      ${(s.messages || []).map((m) => `
+        <div class="chat-msg chat-msg--${m.sender}">
+          <div class="chat-bubble">${escHtml(m.text)}</div>
+          <div class="chat-msgtime">${m.sender === 'agent' ? 'You' : m.sender === 'system' ? 'System' : escHtml(s.customerName.split(' ')[0])} · ${timeAgo(m.at)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="chat-compose">
+      <input id="chatInput" placeholder="Type a reply…" autocomplete="off" />
+      <button class="btn btn--primary btn--sm" id="chatSend">Send</button>
+    </div>
+    <div class="chat-actions"><button class="btn btn--sm" data-raisecase ${s.caseId ? 'disabled' : ''}>${s.caseId ? '✓ Case ' + s.caseId : '➜ Raise case'}</button></div>`;
+  chatPanel.querySelector('[data-cx]').onclick = closeChat;
+  chatPanel.querySelector('[data-back]').onclick = () => { chat.sessionId = null; renderChatList(); };
+  const input = chatPanel.querySelector('#chatInput');
+  const send = async () => {
+    const text = input.value.trim(); if (!text) return;
+    input.value = '';
+    await api.chatSend(id, { text, sender: 'agent' });
+    await renderChatThread(id);
+  };
+  chatPanel.querySelector('#chatSend').onclick = send;
+  input.onkeydown = (e) => { if (e.key === 'Enter') send(); };
+  const raise = chatPanel.querySelector('[data-raisecase]');
+  if (raise && !s.caseId) raise.onclick = async () => {
+    const c = await api.chatToCase(id);
+    toast('Case raised from chat', c.id, 'success');
+    renderChatThread(id);
+  };
+  const box = chatPanel.querySelector('.chat-msgs');
+  if (box && (atBottom || !silent)) box.scrollTop = box.scrollHeight;
+  if (!silent) input.focus();
+}
+
+setInterval(() => { if (!chat.open) refreshChatBadge(); }, 8000);
+
 (async function init() {
   state.meta = await api.meta();
   if (!location.hash) location.hash = '#/dashboard';
   await router();
+  refreshChatBadge();
 })();

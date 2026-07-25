@@ -293,6 +293,67 @@ export function seed() {
   ];
   actions.forEach((a) => db.insert('actions', { ...a, createdAt: daysAgo(10), updatedAt: daysAgo(1), completedAt: a.status === 'done' ? daysAgo(1) : null }));
 
+  // --- Annual price reviews (carrier/customer combinations, staggered dates) -
+  const priceReviews = [
+    { id: 'PRV-1', title: 'Kingfisher × StarTrack — FY27 CPI increase', scope: 'carrier-customer', accountId: 'ACC-1', carrierId: 'CARR-1', brand: 'EFM', method: 'cpi', cpiRate: 3.8, increasePercent: 3.8, effectiveDate: dateOnly(40), reviewDate: dateOnly(10), baselineValue: 620000, status: 'in-review', ownerId: 'AGT-4', notes: 'CPI-linked per MSA. Notify 30 days before effective date.' },
+    { id: 'PRV-2', title: 'Kingfisher × Border Express — FY27 negotiated', scope: 'carrier-customer', accountId: 'ACC-1', carrierId: 'CARR-6', brand: 'EFM', method: 'negotiated', increasePercent: 5.2, effectiveDate: dateOnly(55), reviewDate: dateOnly(20), baselineValue: 310000, status: 'planned', ownerId: 'AGT-4', notes: 'Different increase date to StarTrack lane.' },
+    { id: 'PRV-3', title: 'Corella Foods — whole-of-customer review', scope: 'customer', accountId: 'ACC-2', carrierId: null, brand: 'AFS', method: 'fixed-percent', increasePercent: 4.5, effectiveDate: dateOnly(25), reviewDate: dateOnly(-3), baselineValue: 940000, status: 'notified', ownerId: 'AGT-4', notes: 'Customer notified; awaiting acceptance.' },
+    { id: 'PRV-4', title: 'Southern Cross × Toll — fuel adjustment', scope: 'carrier-customer', accountId: 'ACC-3', carrierId: 'CARR-4', brand: 'AFS', method: 'fuel-adjustment', increasePercent: 2.1, effectiveDate: dateOnly(15), reviewDate: dateOnly(-10), baselineValue: 480000, status: 'disputed', ownerId: 'AGT-4', notes: 'Customer disputing fuel levy basis.' },
+    { id: 'PRV-5', title: 'Tasman Beverages × Mainfreight — trans-Tasman', scope: 'carrier-customer', accountId: 'ACC-5', carrierId: 'CARR-7', brand: 'AFS', method: 'market', increasePercent: 6.0, effectiveDate: dateOnly(70), reviewDate: dateOnly(30), baselineValue: 540000, status: 'planned', ownerId: 'AGT-4', notes: 'Sea freight market rates firming.' },
+    { id: 'PRV-6', title: 'Network-wide fuel levy refresh', scope: 'network', accountId: null, carrierId: null, brand: 'EFM', method: 'fuel-adjustment', increasePercent: 1.5, effectiveDate: dateOnly(5), reviewDate: dateOnly(-1), baselineValue: null, status: 'approved', ownerId: 'AGT-4', notes: 'Applies across all EFM lanes.' },
+  ];
+  priceReviews.forEach((p) => db.insert('priceReviews', { ...p, lane: null, createdAt: daysAgo(20), updatedAt: daysAgo(2) }));
+
+  // --- Solution / engineering / analytics requests --------------------------
+  const requests = [
+    { id: 'REQ-1', title: 'Design consolidated east-coast LTL network', type: 'solution-design', accountId: 'ACC-1', brand: 'EFM', priority: 'high', status: 'in-progress', requestedBy: 'Elena Fischer', ownerId: 'AGT-4', dueDate: dateOnly(12), description: 'Model consolidation of 42 stores onto StarTrack + Border Express.' },
+    { id: 'REQ-2', title: 'efmAPP EDI integration for inbound milestones', type: 'integration', accountId: 'ACC-2', brand: 'AFS', priority: 'medium', status: 'scoping', requestedBy: 'Raj Patel', ownerId: 'AGT-5', dueDate: dateOnly(25), description: 'Push inbound milestone events into Corella WMS.' },
+    { id: 'REQ-3', title: 'Cold-chain excursion analytics dashboard', type: 'analytics', accountId: 'ACC-3', brand: 'AFS', priority: 'high', status: 'new', requestedBy: 'Dr. Amelia Stone', ownerId: 'AGT-6', dueDate: dateOnly(8), description: 'Temperature excursion trends by lane and carrier.' },
+    { id: 'REQ-4', title: 'Monthly freight-spend data extract', type: 'data-extract', accountId: 'ACC-7', brand: 'EFM', priority: 'low', status: 'delivered', requestedBy: 'Grace Liu', ownerId: 'AGT-4', dueDate: dateOnly(-5), description: 'CSV of freight spend by cost centre.' },
+    { id: 'REQ-5', title: 'Remote-site lane optimisation study', type: 'optimisation', accountId: 'ACC-7', brand: 'EFM', priority: 'medium', status: 'in-progress', requestedBy: 'Grace Liu', ownerId: 'AGT-6', dueDate: dateOnly(18), description: 'Optimise Adelaide→Darwin remote-site routing.' },
+  ];
+  requests.forEach((r) => db.insert('requests', { ...r, createdAt: daysAgo(15), updatedAt: daysAgo(1) }));
+
+  // --- At-risk register -----------------------------------------------------
+  const risks = [
+    { id: 'RISK-1', accountId: 'ACC-3', brand: 'AFS', title: 'Cold-chain excursions eroding confidence', category: 'service', severity: 'critical', likelihood: 'likely', revenueAtRisk: 1220000, status: 'mitigating', mitigationPlan: 'Root-cause analysis + Toll remediation plan + weekly exec check-ins.', ownerId: 'AGT-4', reviewDate: dateOnly(7) },
+    { id: 'RISK-2', accountId: 'ACC-5', brand: 'AFS', title: 'Competitor pitching trans-Tasman lanes', category: 'competitor', severity: 'high', likelihood: 'possible', revenueAtRisk: 420000, status: 'open', mitigationPlan: 'Accelerate trans-Tasman program (DEAL-4); lock Mainfreight rates.', ownerId: 'AGT-6', reviewDate: dateOnly(14) },
+    { id: 'RISK-3', accountId: 'ACC-2', brand: 'AFS', title: 'Transit-time variance complaints', category: 'service', severity: 'medium', likelihood: 'possible', revenueAtRisk: 180000, status: 'monitoring', mitigationPlan: 'Deliver variance improvement plan; control-tower rollout.', ownerId: 'AGT-4', reviewDate: dateOnly(21) },
+  ];
+  risks.forEach((r) => db.insert('risks', { ...r, createdAt: daysAgo(12), updatedAt: daysAgo(2) }));
+
+  // --- Implementations (new customer + carrier change) ----------------------
+  const cl = (arr, done) => arr.map((task, i) => ({ id: `CL-${i + 1}`, task, done: i < done }));
+  const implementations = [
+    { id: 'IMP-1', title: 'Redgum — regional QLD parcel go-live', type: 'new-customer', accountId: 'ACC-4', brand: 'EFM', status: 'go-live', goLiveDate: dateOnly(6), fromCarrierId: null, toCarrierId: 'CARR-3', ownerId: 'AGT-4', notes: 'Followmont onboarded for QLD regional.', checklist: cl(['Kick-off & scope', 'Carrier setup & rates loaded', 'efmAPP integration / EDI', 'Test consignments', 'Go-live sign-off', 'Post go-live review'], 4) },
+    { id: 'IMP-2', title: 'Pilbara — change carrier Toll → Northline (remote NT/WA)', type: 'carrier-change', accountId: 'ACC-7', brand: 'EFM', status: 'in-progress', goLiveDate: dateOnly(20), fromCarrierId: 'CARR-4', toCarrierId: 'CARR-10', ownerId: 'AGT-4', notes: 'Moving remote-site lanes to Northline; parallel-run underway.', checklist: cl(['Confirm new carrier & rates', 'Notify outgoing carrier', 'Update lanes & routing rules', 'Parallel-run test', 'Cutover', 'Verify tracking events flowing'], 3) },
+    { id: 'IMP-3', title: 'Kauri Electronics — new customer onboarding', type: 'new-customer', accountId: 'ACC-6', brand: 'AFS', status: 'planning', goLiveDate: dateOnly(35), fromCarrierId: null, toCarrierId: 'CARR-8', ownerId: 'AGT-6', notes: 'Signature-required express via NZ Couriers.', checklist: cl(['Kick-off & scope', 'Carrier setup & rates loaded', 'efmAPP integration / EDI', 'Test consignments', 'Go-live sign-off', 'Post go-live review'], 1) },
+  ];
+  implementations.forEach((i) => db.insert('implementations', { ...i, createdAt: daysAgo(18), updatedAt: daysAgo(1) }));
+
+  // --- Credit claims (mostly against carriers) ------------------------------
+  const creditClaims = [
+    { id: 'CLM-1', accountId: 'ACC-4', brand: 'EFM', carrierId: 'CARR-3', shipmentId: 'SHP-6', shipmentRef: 'EFM-CON-88301', reference: 'CLM-2026-1001', amount: 2400, currency: 'AUD', reason: 'damage', against: 'carrier', status: 'under-review', lodgedDate: dateOnly(-3), ownerId: 'AGT-1', notes: 'Pallet of tiles damaged in transit; lodged with Followmont.' },
+    { id: 'CLM-2', accountId: 'ACC-3', brand: 'AFS', carrierId: 'CARR-4', shipmentId: 'SHP-3', shipmentRef: 'AFS-CON-40118', reference: 'CLM-2026-1002', amount: 5600, currency: 'AUD', reason: 'service-failure', against: 'carrier', status: 'submitted', lodgedDate: dateOnly(-1), ownerId: 'AGT-3', notes: 'Cold-chain excursion — product loss claim against Toll.' },
+    { id: 'CLM-3', accountId: 'ACC-2', brand: 'AFS', carrierId: null, shipmentId: null, shipmentRef: null, reference: 'CLM-2026-1003', amount: 890, currency: 'AUD', reason: 'overcharge', against: 'internal', status: 'approved', lodgedDate: dateOnly(-9), resolvedDate: dateOnly(-2), ownerId: 'AGT-3', notes: 'Duplicate fuel levy on INV-77120; credit approved.' },
+    { id: 'CLM-4', accountId: 'ACC-6', brand: 'AFS', carrierId: 'CARR-8', shipmentId: 'SHP-5', shipmentRef: 'AFS-CON-40201', reference: 'CLM-2026-1004', amount: 320, currency: 'AUD', reason: 'delay', against: 'carrier', status: 'draft', lodgedDate: dateOnly(0), ownerId: 'AGT-1', notes: 'Failed delivery — re-delivery cost recovery from NZ Couriers.' },
+  ];
+  creditClaims.forEach((c) => db.insert('creditClaims', { ...c, resolvedDate: c.resolvedDate || null, createdAt: daysAgo(6), updatedAt: daysAgo(1) }));
+
+  // --- Live chat sessions (some with waiting customer messages) -------------
+  const chatSessions = [
+    { id: 'CHAT-1', customerName: 'Tom Baker (Kingfisher)', accountId: 'ACC-1', agentId: 'AGT-2', subject: 'ETA for EFM-CON-88213', channel: 'web', status: 'waiting', createdAt: hoursAgo(1), lastMessageAt: hoursAgo(0.2) },
+    { id: 'CHAT-2', customerName: 'Website visitor', accountId: null, agentId: null, subject: 'Trans-Tasman quote enquiry', channel: 'web', status: 'waiting', createdAt: hoursAgo(0.5), lastMessageAt: hoursAgo(0.1) },
+  ];
+  chatSessions.forEach((s) => db.insert('chatSessions', s));
+  const chatMessages = [
+    { id: 'MSG-1', sessionId: 'CHAT-1', sender: 'customer', text: 'Hi, any update on consignment EFM-CON-88213 to Sydney?', at: hoursAgo(1), readByAgent: true },
+    { id: 'MSG-2', sessionId: 'CHAT-1', sender: 'agent', text: 'Hi Tom — it\'s in transit via StarTrack, currently in Albury. ETA tomorrow.', at: hoursAgo(0.9), readByAgent: true },
+    { id: 'MSG-3', sessionId: 'CHAT-1', sender: 'customer', text: 'Great — can you send the POD once delivered?', at: hoursAgo(0.2), readByAgent: false },
+    { id: 'MSG-4', sessionId: 'CHAT-2', sender: 'customer', text: 'Hello, we need rates for Auckland to Sydney sea freight. Can someone help?', at: hoursAgo(0.1), readByAgent: false },
+  ];
+  chatMessages.forEach((m) => db.insert('chatMessages', m));
+
   // Keep id counters ahead of seeded records.
   db.syncCounters({
     accounts: { prefix: 'ACC', start: 1 },
@@ -308,6 +369,13 @@ export function seed() {
     carriers: { prefix: 'CARR', start: 1 },
     quotes: { prefix: 'QTE', start: 1 },
     salesActivities: { prefix: 'SACT', start: 1 },
+    priceReviews: { prefix: 'PRV', start: 1 },
+    requests: { prefix: 'REQ', start: 1 },
+    risks: { prefix: 'RISK', start: 1 },
+    implementations: { prefix: 'IMP', start: 1 },
+    creditClaims: { prefix: 'CLM', start: 1 },
+    chatSessions: { prefix: 'CHAT', start: 1 },
+    chatMessages: { prefix: 'MSG', start: 1 },
   });
 
   // --- Replay a burst of efmAPP events (exercise carrier-linked auto-cases) --
@@ -334,6 +402,12 @@ export function seed() {
     events: db.collection('events').length,
     documents: db.collection('documents').length,
     actions: db.collection('actions').length,
+    priceReviews: db.collection('priceReviews').length,
+    requests: db.collection('requests').length,
+    risks: db.collection('risks').length,
+    implementations: db.collection('implementations').length,
+    creditClaims: db.collection('creditClaims').length,
+    chatSessions: db.collection('chatSessions').length,
   };
 }
 

@@ -38,6 +38,21 @@ import {
   SALES_ACTIVITY_TYPES,
   LEAD_SOURCES,
   SERVICE_TYPES,
+  PRICE_REVIEW_SCOPES,
+  PRICE_REVIEW_METHODS,
+  PRICE_REVIEW_STATUSES,
+  REQUEST_TYPES,
+  REQUEST_STATUSES,
+  RISK_CATEGORIES,
+  RISK_SEVERITIES,
+  RISK_STATUSES,
+  IMPLEMENTATION_TYPES,
+  IMPLEMENTATION_STATUSES,
+  CLAIM_REASONS,
+  CLAIM_STATUSES,
+  CLAIM_AGAINST,
+  CHAT_STATUSES,
+  implementationChecklist,
   responsibilityForCategory,
   quoteTotals,
   emptyBlueSheet,
@@ -65,6 +80,13 @@ db.syncCounters({
   carriers: { prefix: 'CARR', start: 1 },
   quotes: { prefix: 'QTE', start: 1 },
   salesActivities: { prefix: 'SACT', start: 1 },
+  priceReviews: { prefix: 'PRV', start: 1 },
+  requests: { prefix: 'REQ', start: 1 },
+  risks: { prefix: 'RISK', start: 1 },
+  implementations: { prefix: 'IMP', start: 1 },
+  creditClaims: { prefix: 'CLM', start: 1 },
+  chatSessions: { prefix: 'CHAT', start: 1 },
+  chatMessages: { prefix: 'MSG', start: 1 },
 });
 if (db.collection('accounts').length === 0) {
   console.log('[boot] empty database — seeding demo data');
@@ -118,8 +140,23 @@ api.get('/meta', (_req, res) => {
     salesActivityTypes: SALES_ACTIVITY_TYPES,
     leadSources: LEAD_SOURCES,
     serviceTypes: SERVICE_TYPES,
+    priceReviewScopes: PRICE_REVIEW_SCOPES,
+    priceReviewMethods: PRICE_REVIEW_METHODS,
+    priceReviewStatuses: PRICE_REVIEW_STATUSES,
+    requestTypes: REQUEST_TYPES,
+    requestStatuses: REQUEST_STATUSES,
+    riskCategories: RISK_CATEGORIES,
+    riskSeverities: RISK_SEVERITIES,
+    riskStatuses: RISK_STATUSES,
+    implementationTypes: IMPLEMENTATION_TYPES,
+    implementationStatuses: IMPLEMENTATION_STATUSES,
+    claimReasons: CLAIM_REASONS,
+    claimStatuses: CLAIM_STATUSES,
+    claimAgainst: CLAIM_AGAINST,
+    chatStatuses: CHAT_STATUSES,
     agents: db.collection('agents'),
     carriers: db.collection('carriers').map((c) => ({ id: c.id, name: c.name, code: c.code })),
+    accountsLite: db.collection('accounts').map((a) => ({ id: a.id, name: a.name, brand: a.brand })),
   });
 });
 
@@ -165,6 +202,16 @@ api.get('/dashboard', (req, res) => {
     (dc) => accountIds.has(dc.accountId) && dc.type === 'agreement' && dc.expiryDate &&
       new Date(dc.expiryDate).getTime() < in60 && new Date(dc.expiryDate).getTime() > now,
   );
+  const openRisks = db.collection('risks').filter((r) => accountIds.has(r.accountId) && !['mitigated', 'closed'].includes(r.status));
+  const revenueAtRisk = Math.round(openRisks.reduce((s, r) => s + (r.revenueAtRisk || 0), 0));
+  const openClaims = db.collection('creditClaims').filter((c) => accountIds.has(c.accountId) && !['credited', 'rejected'].includes(c.status));
+  const openClaimsValue = Math.round(openClaims.reduce((s, c) => s + (c.amount || 0), 0));
+  const activeImplementations = db.collection('implementations').filter((i) => accountIds.has(i.accountId) && !['live', 'cancelled'].includes(i.status));
+  const openRequests = db.collection('requests').filter((r) => accountIds.has(r.accountId) && !['delivered', 'cancelled'].includes(r.status));
+  const priceReviewsDue = db.collection('priceReviews').filter(
+    (p) => accountIds.has(p.accountId) && !['applied', 'declined'].includes(p.status) && p.effectiveDate &&
+      new Date(p.effectiveDate).getTime() < in60,
+  );
 
   // Case distribution by priority and by category.
   const byPriority = {};
@@ -197,6 +244,13 @@ api.get('/dashboard', (req, res) => {
       expiringAgreements: expiringAgreements.length,
       casesWithCarrier,
       carriers: db.collection('carriers').length,
+      revenueAtRisk,
+      openRisks: openRisks.length,
+      openClaims: openClaims.length,
+      openClaimsValue,
+      activeImplementations: activeImplementations.length,
+      openRequests: openRequests.length,
+      priceReviewsDue: priceReviewsDue.length,
     },
     byPriority,
     byCategory,
@@ -249,6 +303,16 @@ api.get('/accounts/:id', (req, res) => {
     activities: db.filter('activities', (x) => x.accountId === account.id).sort((a, b) => new Date(b.at) - new Date(a.at)),
     documents: db.filter('documents', (x) => x.accountId === account.id).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt)),
     actions: db.filter('actions', (x) => x.accountId === account.id).sort(actionSort),
+    priceReviews: db.filter('priceReviews', (x) => x.accountId === account.id).map(opEnrich),
+    requests: db.filter('requests', (x) => x.accountId === account.id).map(opEnrich),
+    risks: db.filter('risks', (x) => x.accountId === account.id).map(opEnrich),
+    implementations: db.filter('implementations', (x) => x.accountId === account.id).map((r) => ({
+      ...opEnrich(r),
+      fromCarrierName: r.fromCarrierId ? db.getById('carriers', r.fromCarrierId)?.name : null,
+      toCarrierName: r.toCarrierId ? db.getById('carriers', r.toCarrierId)?.name : null,
+      progress: r.checklist?.length ? Math.round((r.checklist.filter((c) => c.done).length / r.checklist.length) * 100) : 0,
+    })),
+    creditClaims: db.filter('creditClaims', (x) => x.accountId === account.id).map(opEnrich),
   });
 });
 
@@ -392,6 +456,326 @@ api.patch('/actions/:id', asyncH((req, res) => {
   if (patch.status === 'done' && existing.status !== 'done') patch.completedAt = new Date().toISOString();
   if (patch.status && patch.status !== 'done') patch.completedAt = null;
   res.json(db.update('actions', req.params.id, patch));
+}));
+
+// ============================================================================
+// ACCOUNT OPERATIONS — price reviews, requests, at-risk, implementations, claims
+// ============================================================================
+function opEnrich(rec) {
+  return {
+    ...rec,
+    accountName: rec.accountId ? db.getById('accounts', rec.accountId)?.name : (rec.accountName || null),
+    carrierName: rec.carrierId ? db.getById('carriers', rec.carrierId)?.name : (rec.carrierName || null),
+    ownerName: rec.ownerId ? db.getById('agents', rec.ownerId)?.name : (rec.ownerName || rec.owner || null),
+  };
+}
+
+function opList(collection, req) {
+  let rows = [...db.collection(collection)];
+  const { accountId, carrierId, status, brand, type, q } = req.query;
+  if (accountId) rows = rows.filter((r) => r.accountId === accountId);
+  if (carrierId) rows = rows.filter((r) => r.carrierId === carrierId);
+  if (status) rows = rows.filter((r) => r.status === status);
+  if (brand) rows = rows.filter((r) => r.brand === brand);
+  if (type) rows = rows.filter((r) => r.type === type);
+  if (q) { const s = q.toLowerCase(); rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(s)); }
+  rows.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  return rows.map(opEnrich);
+}
+
+function brandOf(accountId, fallback) {
+  return (accountId ? db.getById('accounts', accountId)?.brand : null) || fallback || 'EFM';
+}
+
+// --- Annual price reviews ---------------------------------------------------
+api.get('/price-reviews', (req, res) => res.json(opList('priceReviews', req)));
+api.post('/price-reviews', asyncH((req, res) => {
+  const b = req.body || {};
+  const now = new Date().toISOString();
+  const rec = {
+    id: db.nextId('PRV'),
+    title: b.title || 'Annual price review',
+    scope: b.scope || 'customer',
+    accountId: b.accountId || null,
+    carrierId: b.carrierId || null,
+    lane: b.lane || null,
+    brand: brandOf(b.accountId, b.brand),
+    method: b.method || 'cpi',
+    increasePercent: b.increasePercent != null ? Number(b.increasePercent) : null,
+    cpiRate: b.cpiRate != null ? Number(b.cpiRate) : null,
+    effectiveDate: b.effectiveDate || null,   // when the increase takes effect
+    reviewDate: b.reviewDate || null,         // when to run/negotiate the review
+    baselineValue: b.baselineValue != null ? Number(b.baselineValue) : null,
+    status: b.status || 'planned',
+    ownerId: b.ownerId || null,
+    notes: b.notes || '',
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('priceReviews', rec);
+  res.status(201).json(opEnrich(rec));
+}));
+api.patch('/price-reviews/:id', asyncH((req, res) => {
+  const u = db.update('priceReviews', req.params.id, req.body || {});
+  if (!u) return res.status(404).json({ error: 'Price review not found' });
+  res.json(opEnrich(u));
+}));
+
+// --- Solution / engineering / analytics requests ----------------------------
+api.get('/requests', (req, res) => res.json(opList('requests', req)));
+api.post('/requests', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.title) throw new ValidationError('title is required');
+  const now = new Date().toISOString();
+  const rec = {
+    id: db.nextId('REQ'),
+    title: b.title,
+    type: b.type || 'solution-design',
+    accountId: b.accountId || null,
+    brand: brandOf(b.accountId, b.brand),
+    priority: b.priority || 'medium',
+    status: b.status || 'new',
+    requestedBy: b.requestedBy || null,
+    ownerId: b.ownerId || null,
+    dueDate: b.dueDate || null,
+    description: b.description || '',
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('requests', rec);
+  res.status(201).json(opEnrich(rec));
+}));
+api.patch('/requests/:id', asyncH((req, res) => {
+  const u = db.update('requests', req.params.id, req.body || {});
+  if (!u) return res.status(404).json({ error: 'Request not found' });
+  res.json(opEnrich(u));
+}));
+
+// --- At-risk register -------------------------------------------------------
+api.get('/risks', (req, res) => res.json(opList('risks', req)));
+api.post('/risks', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.accountId) throw new ValidationError('accountId is required');
+  const now = new Date().toISOString();
+  const rec = {
+    id: db.nextId('RISK'),
+    accountId: b.accountId,
+    brand: brandOf(b.accountId, b.brand),
+    title: b.title || 'Account risk',
+    category: b.category || 'service',
+    severity: b.severity || 'medium',
+    likelihood: b.likelihood || 'possible',
+    revenueAtRisk: b.revenueAtRisk != null ? Number(b.revenueAtRisk) : null,
+    status: b.status || 'open',
+    mitigationPlan: b.mitigationPlan || '',
+    ownerId: b.ownerId || null,
+    reviewDate: b.reviewDate || null,
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('risks', rec);
+  // Reflect a serious open risk on the account's health.
+  if (['high', 'critical'].includes(rec.severity) && rec.status === 'open') {
+    db.update('accounts', rec.accountId, { health: 'at-risk' });
+  }
+  res.status(201).json(opEnrich(rec));
+}));
+api.patch('/risks/:id', asyncH((req, res) => {
+  const u = db.update('risks', req.params.id, req.body || {});
+  if (!u) return res.status(404).json({ error: 'Risk not found' });
+  // If all serious risks are resolved, ease the account health back to watch.
+  if (u.accountId) {
+    const stillAtRisk = db.filter('risks', (r) => r.accountId === u.accountId && ['high', 'critical'].includes(r.severity) && !['mitigated', 'closed'].includes(r.status));
+    if (!stillAtRisk.length) {
+      const acc = db.getById('accounts', u.accountId);
+      if (acc && acc.health === 'at-risk') db.update('accounts', u.accountId, { health: 'watch' });
+    }
+  }
+  res.json(opEnrich(u));
+}));
+
+// --- Implementations (new customer / change / carrier change) ---------------
+api.get('/implementations', (req, res) => res.json(opList('implementations', req).map((r) => ({
+  ...r,
+  fromCarrierName: r.fromCarrierId ? db.getById('carriers', r.fromCarrierId)?.name : null,
+  toCarrierName: r.toCarrierId ? db.getById('carriers', r.toCarrierId)?.name : null,
+  progress: r.checklist?.length ? Math.round((r.checklist.filter((c) => c.done).length / r.checklist.length) * 100) : 0,
+}))));
+api.post('/implementations', asyncH((req, res) => {
+  const b = req.body || {};
+  const type = b.type || 'new-customer';
+  const now = new Date().toISOString();
+  const rec = {
+    id: db.nextId('IMP'),
+    title: b.title || (type === 'new-customer' ? 'New customer onboarding' : type === 'carrier-change' ? 'Carrier change' : 'Implementation'),
+    type,
+    accountId: b.accountId || null,
+    brand: brandOf(b.accountId, b.brand),
+    status: b.status || 'planning',
+    goLiveDate: b.goLiveDate || null,
+    fromCarrierId: b.fromCarrierId || null,
+    toCarrierId: b.toCarrierId || null,
+    ownerId: b.ownerId || null,
+    checklist: b.checklist || implementationChecklist(type),
+    notes: b.notes || '',
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('implementations', rec);
+  res.status(201).json(opEnrich(rec));
+}));
+api.patch('/implementations/:id', asyncH((req, res) => {
+  const u = db.update('implementations', req.params.id, req.body || {});
+  if (!u) return res.status(404).json({ error: 'Implementation not found' });
+  res.json(opEnrich(u));
+}));
+
+// --- Credit claims ----------------------------------------------------------
+api.get('/credit-claims', (req, res) => res.json(opList('creditClaims', req)));
+api.post('/credit-claims', asyncH((req, res) => {
+  const b = req.body || {};
+  const now = new Date().toISOString();
+  const shipment = b.shipmentId ? db.getById('shipments', b.shipmentId) : null;
+  const carrierId = b.carrierId || shipment?.carrierId || null;
+  const rec = {
+    id: db.nextId('CLM'),
+    accountId: b.accountId || shipment?.accountId || null,
+    brand: brandOf(b.accountId || shipment?.accountId, b.brand),
+    carrierId,
+    shipmentId: b.shipmentId || null,
+    shipmentRef: b.shipmentRef || shipment?.reference || null,
+    reference: b.reference || `CLM-${new Date().getFullYear()}-${db.collection('creditClaims').length + 1001}`,
+    amount: b.amount != null ? Number(b.amount) : 0,
+    currency: b.currency || 'AUD',
+    reason: b.reason || 'service-failure',
+    against: b.against || (carrierId ? 'carrier' : 'internal'),
+    status: b.status || 'draft',
+    lodgedDate: b.lodgedDate || now.slice(0, 10),
+    resolvedDate: null,
+    ownerId: b.ownerId || null,
+    notes: b.notes || '',
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('creditClaims', rec);
+  res.status(201).json(opEnrich(rec));
+}));
+api.patch('/credit-claims/:id', asyncH((req, res) => {
+  const existing = db.getById('creditClaims', req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Claim not found' });
+  const patch = { ...req.body };
+  if (patch.status && ['approved', 'rejected', 'credited'].includes(patch.status) && !existing.resolvedDate) {
+    patch.resolvedDate = new Date().toISOString().slice(0, 10);
+  }
+  res.json(opEnrich(db.update('creditClaims', req.params.id, patch)));
+}));
+
+// ============================================================================
+// LIVE CHAT — inbound customer conversations for the CS desk
+// ============================================================================
+const CHAT_AUTO_REPLIES = [
+  'Thanks — could you let me know the ETA?',
+  'Appreciate the quick response.',
+  'That works for me, thank you.',
+  'Can you also send the POD once delivered?',
+  'Okay, please keep me posted on any exceptions.',
+  'Great, thanks for sorting that out.',
+];
+
+function chatSessionView(s) {
+  const messages = db.filter('chatMessages', (m) => m.sessionId === s.id).sort((a, b) => new Date(a.at) - new Date(b.at));
+  return { ...s, accountName: s.accountId ? db.getById('accounts', s.accountId)?.name : null, messages, lastMessage: messages[messages.length - 1] || null };
+}
+
+api.get('/chat/sessions', (req, res) => {
+  const rows = db.collection('chatSessions')
+    .map((s) => {
+      const msgs = db.filter('chatMessages', (m) => m.sessionId === s.id);
+      const last = msgs.sort((a, b) => new Date(a.at) - new Date(b.at))[msgs.length - 1] || null;
+      return { ...s, accountName: s.accountId ? db.getById('accounts', s.accountId)?.name : null, lastMessage: last, unread: msgs.filter((m) => m.sender === 'customer' && !m.readByAgent).length };
+    })
+    .sort((a, b) => new Date(b.lastMessageAt || b.createdAt) - new Date(a.lastMessageAt || a.createdAt));
+  res.json(rows);
+});
+
+api.get('/chat/sessions/:id', (req, res) => {
+  const s = db.getById('chatSessions', req.params.id);
+  if (!s) return res.status(404).json({ error: 'Chat not found' });
+  res.json(chatSessionView(s));
+});
+
+api.post('/chat/sessions', asyncH((req, res) => {
+  const b = req.body || {};
+  const now = new Date().toISOString();
+  const s = {
+    id: db.nextId('CHAT'),
+    customerName: b.customerName || 'Website visitor',
+    accountId: b.accountId || null,
+    agentId: b.agentId || null,
+    subject: b.subject || 'New chat',
+    channel: b.channel || 'web',
+    status: 'active',
+    createdAt: now, lastMessageAt: now,
+  };
+  db.insert('chatSessions', s);
+  if (b.message) {
+    db.insert('chatMessages', { id: db.nextId('MSG'), sessionId: s.id, sender: 'customer', text: b.message, at: now, readByAgent: false });
+  }
+  res.status(201).json(chatSessionView(s));
+}));
+
+// Mark customer messages read.
+api.post('/chat/sessions/:id/read', asyncH((req, res) => {
+  db.filter('chatMessages', (m) => m.sessionId === req.params.id && m.sender === 'customer' && !m.readByAgent)
+    .forEach((m) => { m.readByAgent = true; });
+  db.save();
+  res.json({ ok: true });
+}));
+
+api.post('/chat/sessions/:id/messages', asyncH((req, res) => {
+  const s = db.getById('chatSessions', req.params.id);
+  if (!s) return res.status(404).json({ error: 'Chat not found' });
+  const b = req.body || {};
+  if (!b.text) throw new ValidationError('text is required');
+  const now = new Date().toISOString();
+  const sender = b.sender || 'agent';
+  const msg = { id: db.nextId('MSG'), sessionId: s.id, sender, text: b.text, at: now, readByAgent: sender !== 'customer' };
+  db.insert('chatMessages', msg);
+  db.update('chatSessions', s.id, { lastMessageAt: now, status: 'active' });
+  // Simulate a live customer reply shortly after an agent message.
+  let autoReply = null;
+  if (sender === 'agent') {
+    const idx = db.filter('chatMessages', (m) => m.sessionId === s.id).length % CHAT_AUTO_REPLIES.length;
+    autoReply = {
+      id: db.nextId('MSG'), sessionId: s.id, sender: 'customer',
+      text: CHAT_AUTO_REPLIES[idx], at: new Date(Date.now() + 1000).toISOString(), readByAgent: false,
+    };
+    db.insert('chatMessages', autoReply);
+    db.update('chatSessions', s.id, { lastMessageAt: autoReply.at });
+  }
+  res.status(201).json({ message: msg, autoReply });
+}));
+
+// Raise a case directly from a chat.
+api.post('/chat/sessions/:id/case', asyncH((req, res) => {
+  const s = db.getById('chatSessions', req.params.id);
+  if (!s) return res.status(404).json({ error: 'Chat not found' });
+  const account = s.accountId ? db.getById('accounts', s.accountId) : null;
+  const now = new Date().toISOString();
+  const transcript = db.filter('chatMessages', (m) => m.sessionId === s.id)
+    .map((m) => `${m.sender}: ${m.text}`).join('\n');
+  const newCase = {
+    id: db.nextId('CASE'),
+    subject: `Live chat — ${s.subject}`,
+    brand: account?.brand || 'EFM',
+    accountId: account?.id ?? null, accountName: account?.name ?? null,
+    contactId: null, shipmentId: null, shipmentRef: null,
+    carrierId: null, carrierName: null, responsibility: 'internal',
+    category: 'general', priority: 'medium', status: 'new', origin: 'live-chat',
+    assigneeId: s.agentId || null, assigneeName: s.agentId ? db.getById('agents', s.agentId)?.name : null,
+    slaDueAt: slaDueDate('medium'),
+    description: `Raised from live chat with ${s.customerName}.\n\nTranscript:\n${transcript}`,
+    timeline: [{ type: 'system', message: 'Case raised from live chat', at: now }],
+    createdAt: now, updatedAt: now, lastActivityAt: now,
+  };
+  db.insert('cases', newCase);
+  db.update('chatSessions', s.id, { caseId: newCase.id });
+  res.status(201).json(withSla(newCase));
 }));
 
 // --- Contacts ----------------------------------------------------------------

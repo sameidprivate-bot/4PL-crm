@@ -25,6 +25,13 @@ const COLLECTIONS = [
   'carriers',
   'quotes',
   'salesActivities',
+  'priceReviews',
+  'requests',
+  'risks',
+  'implementations',
+  'creditClaims',
+  'chatSessions',
+  'chatMessages',
 ];
 
 function emptyState() {

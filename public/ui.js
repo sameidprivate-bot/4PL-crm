@@ -162,6 +162,28 @@ export function quoteStatusBadge(s) {
   return `<span class="badge ${QUOTE_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
 }
 
+// Shared status colouring across the account-ops registers.
+const OP_STATUS_CLS = {
+  // price reviews
+  planned: 'b-slate', 'in-review': 'b-blue', approved: 'b-green', notified: 'b-violet', applied: 'b-green', disputed: 'b-red', declined: 'b-slate',
+  // requests
+  new: 'b-blue', scoping: 'b-violet', 'in-progress': 'b-amber', 'on-hold': 'b-slate', delivered: 'b-green', cancelled: 'b-slate',
+  // risks
+  open: 'b-red', monitoring: 'b-amber', mitigating: 'b-amber', mitigated: 'b-green', closed: 'b-slate', churned: 'b-red',
+  // implementations
+  planning: 'b-slate', 'go-live': 'b-amber', live: 'b-green',
+  // claims
+  submitted: 'b-blue', 'under-review': 'b-amber', rejected: 'b-red', credited: 'b-green',
+};
+export function opStatusBadge(s) {
+  return `<span class="badge ${OP_STATUS_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
+}
+
+const SEV_CLS = { critical: 'b-red', high: 'b-amber', medium: 'b-blue', low: 'b-slate' };
+export function severityBadge(s) {
+  return `<span class="badge ${SEV_CLS[s] || 'b-slate'}"><span class="dot"></span>${titleCase(s)}</span>`;
+}
+
 let toastId = 0;
 export function toast(title, msg = '', type = 'info') {
   const wrap = document.getElementById('toasts');

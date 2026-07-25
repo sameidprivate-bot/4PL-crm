@@ -23,6 +23,8 @@ the exceptions already triaged.
 | **Carriers** | Carrier setup for the AU/NZ transport panel (StarTrack, Team Global Express, Followmont, Toll, Mainfreight, …). See **cases by carrier**, what's **still with the carrier to resolve**, and a **performance report** (open/with-carrier/resolved, avg resolution time, exception rate, on-time %). |
 | **Sales** | Tabbed **Overview / Pipeline / Quotes**: weighted forecast by month, win rate, rep-vs-target, pipeline by service & source; drag-and-drop Kanban with a **Miller Heiman Blue Sheet** per deal; **quotes** with carrier buy/sell rate lines and margin; win/loss close workflow. |
 | **Account management** | 360° account view — health/tier, contacts, cases, deals, shipments, a **document library** (rate cards, agreements, QBRs, monthly decks) and an **action register**. |
+| **Account Ops** | Cross-account registers: **annual price reviews** (per carrier/customer combination, customer, carrier, lane or network — each with its own increase date & method), **solution/engineering/analytics requests**, an **at-risk register**, **implementations** (new customer & carrier-change with checklists), and **credit claims**. |
+| **Live chat** | Floating live-chat console for the CS desk — inbound customer conversations, unread badges, polling, simulated customer replies, and one-click **raise case from chat**. |
 | **Shipments** | Consignment register with live status, ETA and full efmAPP event timeline per shipment. |
 | **Dashboard** | KPIs (open cases, SLA breaches, exceptions today, pipeline value…), SLA watch-list and a live event feed. |
 | **Dual-brand** | Everything filters by EFM / AFS from the sidebar. |
@@ -165,6 +167,51 @@ PATCH /api/deals/:id            # stage moves; won/lost stamp a close date
 ```
 
 All monetary values are AUD; addresses and lanes are Australian & New Zealand.
+
+---
+
+## Account Ops (new)
+
+A dedicated **Account Ops** area (and per-account sections in the account drawer) covers the
+commercial & delivery lifecycle:
+
+- **Annual price reviews** — scoped to a **carrier/customer combination**, a whole customer,
+  a carrier, a lane, or the network. Each has its own **method** (CPI, fixed %, fuel
+  adjustment, cost-plus, negotiated, market), increase %, **review date** and **effective
+  (increase) date**, and a status workflow (planned → in-review → approved → notified →
+  applied / disputed / declined). Reviews due within 60 days surface on the dashboard.
+- **Requests** — solution-design, engineering, analytics, data-extract, integration,
+  reporting and optimisation work, with priority, owner and due date.
+- **At-risk register** — category, severity, likelihood, revenue-at-risk, mitigation plan,
+  owner and review date. A high/critical open risk flips the account's health to *at-risk*
+  (and eases back when cleared); total revenue-at-risk shows on the dashboard.
+- **Implementations** — onboarding a **new customer** or a **change to an existing customer
+  (incl. carrier change, from→to)**, with a type-specific **checklist**, go-live date and
+  progress %.
+- **Credit claims** — usually **against a carrier** (or internal), linked to a shipment,
+  with reason, amount, reference and a submit → under-review → approved/rejected → credited
+  workflow.
+
+```
+GET/POST /api/price-reviews   PATCH /api/price-reviews/:id
+GET/POST /api/requests        PATCH /api/requests/:id
+GET/POST /api/risks           PATCH /api/risks/:id
+GET/POST /api/implementations PATCH /api/implementations/:id
+GET/POST /api/credit-claims   PATCH /api/credit-claims/:id
+```
+
+## Live chat
+
+A floating chat widget for the CS desk backed by `chatSessions` + `chatMessages`, polled
+for live updates. Inbound customer messages raise an unread badge; agents reply inline; a
+lightweight auto-responder simulates the customer so the thread feels live; and any chat can
+be converted to a case (with the transcript) in one click.
+
+```
+GET /api/chat/sessions            POST /api/chat/sessions
+GET /api/chat/sessions/:id        POST /api/chat/sessions/:id/messages
+POST /api/chat/sessions/:id/read  POST /api/chat/sessions/:id/case
+```
 
 ---
 

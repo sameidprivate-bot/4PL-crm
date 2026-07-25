@@ -200,6 +200,47 @@ export const SERVICE_TYPES = [
   'Network Design', 'Reverse Logistics', 'Trans-Tasman', 'Full 4PL', 'Warehousing', 'Express',
 ];
 
+// --- Account operations: price reviews, requests, risk, implementations, claims
+
+// Annual price review — can target a carrier/customer combination, a whole
+// customer, a carrier, a lane, or the network, each with its own increase date.
+export const PRICE_REVIEW_SCOPES = ['carrier-customer', 'customer', 'carrier', 'lane', 'network'];
+export const PRICE_REVIEW_METHODS = ['cpi', 'fixed-percent', 'fuel-adjustment', 'cost-plus', 'negotiated', 'market'];
+export const PRICE_REVIEW_STATUSES = ['planned', 'in-review', 'approved', 'notified', 'applied', 'disputed', 'declined'];
+
+// Solution / engineering / analytics work requests.
+export const REQUEST_TYPES = ['solution-design', 'engineering', 'analytics', 'data-extract', 'integration', 'reporting', 'optimisation'];
+export const REQUEST_STATUSES = ['new', 'scoping', 'in-progress', 'on-hold', 'delivered', 'cancelled'];
+
+// At-risk register.
+export const RISK_CATEGORIES = ['service', 'pricing', 'competitor', 'relationship', 'volume-decline', 'financial', 'compliance'];
+export const RISK_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+export const RISK_STATUSES = ['open', 'monitoring', 'mitigating', 'mitigated', 'closed', 'churned'];
+
+// Implementations — onboarding a new customer, or a change (e.g. carrier change).
+export const IMPLEMENTATION_TYPES = ['new-customer', 'carrier-change', 'service-change', 'expansion', 'offboarding'];
+export const IMPLEMENTATION_STATUSES = ['planning', 'in-progress', 'go-live', 'live', 'on-hold', 'cancelled'];
+
+// Credit claims (usually against a carrier).
+export const CLAIM_REASONS = ['damage', 'loss', 'service-failure', 'overcharge', 'delay', 'shortage', 'other'];
+export const CLAIM_STATUSES = ['draft', 'submitted', 'under-review', 'approved', 'rejected', 'credited'];
+export const CLAIM_AGAINST = ['carrier', 'internal'];
+
+// Live chat.
+export const CHAT_STATUSES = ['active', 'waiting', 'closed'];
+
+// Default implementation checklists so a new record is actionable immediately.
+export function implementationChecklist(type) {
+  const base = {
+    'new-customer': ['Kick-off & scope', 'Carrier setup & rates loaded', 'efmAPP integration / EDI', 'Test consignments', 'Go-live sign-off', 'Post go-live review'],
+    'carrier-change': ['Confirm new carrier & rates', 'Notify outgoing carrier', 'Update lanes & routing rules', 'Parallel-run test', 'Cutover', 'Verify tracking events flowing'],
+    'service-change': ['Scope change', 'Update rate card', 'Update SOPs', 'Communicate to stakeholders', 'Activate'],
+    expansion: ['Scope new lanes/volumes', 'Capacity check with carriers', 'Rates & agreement update', 'Activate'],
+    offboarding: ['Confirm end date', 'Final invoicing', 'Return of assets/data', 'Close account'],
+  };
+  return (base[type] || ['Scope', 'Execute', 'Verify']).map((task, i) => ({ id: `CL-${i + 1}`, task, done: false }));
+}
+
 // Sum a quote's lines into totals + margin.
 export function quoteTotals(lines = []) {
   const sell = lines.reduce((s, l) => s + (Number(l.sellRate) || 0) * (Number(l.units) || 1), 0);

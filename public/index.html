@@ -33,6 +33,7 @@
           <a href="#/sales" data-view="sales"><span class="nav__ico">◭</span> Sales</a>
           <a href="#/carriers" data-view="carriers"><span class="nav__ico">◇</span> Carriers <span class="nav__badge" id="badgeCarriers"></span></a>
           <a href="#/accounts" data-view="accounts"><span class="nav__ico">◨</span> Accounts</a>
+          <a href="#/ops" data-view="ops"><span class="nav__ico">◐</span> Account Ops <span class="nav__badge" id="badgeOps"></span></a>
           <a href="#/shipments" data-view="shipments"><span class="nav__ico">◎</span> Shipments</a>
           <a href="#/events" data-view="events"><span class="nav__ico">⚡</span> efmAPP Feed <span class="nav__badge nav__badge--live" id="badgeEvents"></span></a>
         </nav>
@@ -58,6 +59,13 @@
 
     <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
     <aside class="drawer" id="drawer" hidden></aside>
+
+    <!-- Live chat -->
+    <button class="chat-fab" id="chatFab" title="Live chat">
+      <span class="chat-fab__ico">💬</span>
+      <span class="chat-fab__badge" id="chatFabBadge"></span>
+    </button>
+    <div class="chat-panel" id="chatPanel" hidden></div>
 
     <div class="toast-wrap" id="toasts"></div>
 

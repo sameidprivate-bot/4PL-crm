@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { db } from '../server/db.js';
 import { ingestEvent } from '../server/events.js';
-import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals } from '../server/domain.js';
+import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals, implementationChecklist } from '../server/domain.js';
 
 // Build an isolated in-memory dataset for each test run.
 function bootstrap() {
@@ -137,6 +137,15 @@ test('quoteTotals computes sell, buy, margin and margin %', () => {
   assert.equal(t.buy, 2000);
   assert.equal(t.margin, 700);
   assert.equal(t.marginPct, 26); // 700/2700
+});
+
+test('implementation checklists differ by type and are actionable', () => {
+  const nc = implementationChecklist('new-customer');
+  const cc = implementationChecklist('carrier-change');
+  assert.ok(nc.length >= 4 && cc.length >= 4);
+  assert.ok(nc.every((c) => c.id && c.task && c.done === false));
+  assert.ok(cc.some((c) => /carrier/i.test(c.task)));
+  assert.notDeepEqual(nc.map((c) => c.task), cc.map((c) => c.task));
 });
 
 test('empty Blue Sheet has the full Strategic Selling shape', () => {
