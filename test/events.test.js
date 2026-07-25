@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { db } from '../server/db.js';
 import { ingestEvent } from '../server/events.js';
-import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet } from '../server/domain.js';
+import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals } from '../server/domain.js';
 
 // Build an isolated in-memory dataset for each test run.
 function bootstrap() {
@@ -18,12 +18,14 @@ function bootstrap() {
     shipments: [
       {
         id: 'SHP-1', reference: 'EFM-TEST-1', accountId: 'ACC-1', brand: 'EFM',
+        carrierId: 'CARR-1', carrier: 'StarTrack',
         status: 'in-transit', hasOpenException: false, timeline: [],
       },
     ],
     events: [],
     activities: [],
     agents: [{ id: 'AGT-1', name: 'Agent A', active: true, brands: ['EFM'] }],
+    carriers: [{ id: 'CARR-1', name: 'StarTrack', code: 'STK' }],
   };
   db._counters = {};
   db.save = () => {}; // no-op: keep tests off disk
@@ -101,6 +103,40 @@ test('missing required fields are rejected', () => {
   bootstrap();
   assert.throws(() => ingestEvent({ status: 'delayed' }), /shipmentRef/);
   assert.throws(() => ingestEvent({ shipmentRef: 'X' }), /status/);
+});
+
+test('auto-raised freight case is linked to the carrier and owned by the carrier', () => {
+  bootstrap();
+  const { caseCreated } = ingestEvent({ shipmentRef: 'EFM-TEST-1', status: 'failed-delivery' });
+  assert.ok(caseCreated);
+  assert.equal(caseCreated.carrierId, 'CARR-1');
+  assert.equal(caseCreated.carrierName, 'StarTrack');
+  assert.equal(caseCreated.responsibility, 'carrier'); // delivery-exception → carrier
+});
+
+test('customs exceptions stay internal, not with the carrier', () => {
+  bootstrap();
+  const { caseCreated } = ingestEvent({ shipmentRef: 'EFM-TEST-1', status: 'customs-hold' });
+  assert.equal(caseCreated.category, 'customs');
+  assert.equal(caseCreated.responsibility, 'internal');
+});
+
+test('responsibilityForCategory maps freight failures to the carrier', () => {
+  assert.equal(responsibilityForCategory('damage'), 'carrier');
+  assert.equal(responsibilityForCategory('delay'), 'carrier');
+  assert.equal(responsibilityForCategory('billing'), 'internal');
+  assert.equal(responsibilityForCategory('unknown-x'), 'internal');
+});
+
+test('quoteTotals computes sell, buy, margin and margin %', () => {
+  const t = quoteTotals([
+    { units: 10, buyRate: 100, sellRate: 150 },
+    { units: 2, buyRate: 500, sellRate: 600 },
+  ]);
+  assert.equal(t.sell, 2700);
+  assert.equal(t.buy, 2000);
+  assert.equal(t.margin, 700);
+  assert.equal(t.marginPct, 26); // 700/2700
 });
 
 test('empty Blue Sheet has the full Strategic Selling shape', () => {

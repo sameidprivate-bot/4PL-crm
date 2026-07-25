@@ -43,6 +43,42 @@ export const SLA_HOURS = {
 export const ACCOUNT_TIERS = ['strategic', 'enterprise', 'mid-market', 'small-business'];
 export const ACCOUNT_HEALTH = ['healthy', 'watch', 'at-risk'];
 
+// --- Carriers (the transport providers a 4PL manages) -----------------------
+export const CARRIER_MODES = ['Road', 'Rail', 'Air', 'Sea', 'Courier'];
+export const CARRIER_STATUSES = ['preferred', 'active', 'onboarding', 'suspended'];
+
+// Service regions across Australia and New Zealand.
+export const REGIONS = [
+  'NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'NT', 'ACT', // Australia
+  'NZ-NI', 'NZ-SI', // New Zealand (North / South Island)
+  'National AU', 'National NZ', 'Trans-Tasman',
+];
+
+// Who currently owns resolving a case. "carrier" = it's with the carrier to fix.
+export const CASE_RESPONSIBILITY = ['internal', 'carrier', 'customer'];
+
+// Default responsibility per case category — drives the "still with carrier"
+// view. Freight/delivery failures sit with the carrier; commercial/admin
+// issues sit internally.
+export const CATEGORY_RESPONSIBILITY = {
+  'delivery-exception': 'carrier',
+  delay: 'carrier',
+  damage: 'carrier',
+  'lost-freight': 'carrier',
+  'failed-delivery': 'carrier',
+  'pod-request': 'carrier',
+  'tracking-query': 'carrier',
+  customs: 'internal',
+  billing: 'internal',
+  booking: 'internal',
+  claim: 'carrier',
+  general: 'internal',
+};
+
+export function responsibilityForCategory(category) {
+  return CATEGORY_RESPONSIBILITY[category] || 'internal';
+}
+
 // --- efmAPP status-event vocabulary -----------------------------------------
 // The efmAPP mobile/ops app emits milestone events for every consignment.
 // These flow into the CRM so customer-service agents have live shipment
@@ -154,6 +190,24 @@ export const DOCUMENT_STATUSES = ['draft', 'active', 'signed', 'shared', 'schedu
 
 export const ACTION_STATUSES = ['open', 'in-progress', 'blocked', 'done'];
 export const ACTION_SOURCES = ['qbr', 'monthly-deck', 'rate-review', 'manual'];
+
+// --- Sales: quotes & activities ---------------------------------------------
+export const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'declined', 'expired'];
+export const SALES_ACTIVITY_TYPES = ['call', 'email', 'meeting', 'site-visit', 'proposal', 'quote', 'note'];
+export const LEAD_SOURCES = ['Existing account', 'Referral', 'Inbound', 'Tender', 'Website', 'Outbound', 'Event'];
+export const SERVICE_TYPES = [
+  'Managed LTL', 'Managed FTL', 'Managed Parcel', 'Control Tower', 'Cold Chain',
+  'Network Design', 'Reverse Logistics', 'Trans-Tasman', 'Full 4PL', 'Warehousing', 'Express',
+];
+
+// Sum a quote's lines into totals + margin.
+export function quoteTotals(lines = []) {
+  const sell = lines.reduce((s, l) => s + (Number(l.sellRate) || 0) * (Number(l.units) || 1), 0);
+  const buy = lines.reduce((s, l) => s + (Number(l.buyRate) || 0) * (Number(l.units) || 1), 0);
+  const margin = sell - buy;
+  const marginPct = sell > 0 ? Math.round((margin / sell) * 100) : 0;
+  return { sell: Math.round(sell), buy: Math.round(buy), margin: Math.round(margin), marginPct };
+}
 
 export function stageMeta(key) {
   return DEAL_STAGES.find((s) => s.key === key);

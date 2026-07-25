@@ -12,6 +12,7 @@ import {
   EXCEPTION_RULES,
   isExceptionStatus,
   slaDueDate,
+  responsibilityForCategory,
 } from './domain.js';
 
 const OPEN_CASE_STATUSES = new Set(['new', 'open', 'pending', 'escalated']);
@@ -134,6 +135,8 @@ export function ingestEvent(payload) {
       const contact = account
         ? db.find('contacts', (ct) => ct.accountId === account.id && ct.primary)
         : null;
+      const carrier = shipment?.carrierId ? db.getById('carriers', shipment.carrierId) : null;
+      const responsibility = responsibilityForCategory(rule.category);
       const newCase = {
         id: db.nextId('CASE'),
         subject: `${EXCEPTION_MESSAGES[status] || status} — ${shipmentRef}`,
@@ -143,6 +146,9 @@ export function ingestEvent(payload) {
         contactId: contact?.id ?? null,
         shipmentId: shipment?.id ?? null,
         shipmentRef,
+        carrierId: shipment?.carrierId ?? null,
+        carrierName: carrier?.name ?? shipment?.carrier ?? null,
+        responsibility,
         category: rule.category,
         priority: rule.priority,
         status: 'new',

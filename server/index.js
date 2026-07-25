@@ -30,6 +30,16 @@ import {
   DOCUMENT_STATUSES,
   ACTION_STATUSES,
   ACTION_SOURCES,
+  CARRIER_MODES,
+  CARRIER_STATUSES,
+  REGIONS,
+  CASE_RESPONSIBILITY,
+  QUOTE_STATUSES,
+  SALES_ACTIVITY_TYPES,
+  LEAD_SOURCES,
+  SERVICE_TYPES,
+  responsibilityForCategory,
+  quoteTotals,
   emptyBlueSheet,
   stageMeta,
   slaDueDate,
@@ -52,6 +62,9 @@ db.syncCounters({
   agents: { prefix: 'AGT', start: 1 },
   documents: { prefix: 'DOC', start: 1 },
   actions: { prefix: 'ACTN', start: 1 },
+  carriers: { prefix: 'CARR', start: 1 },
+  quotes: { prefix: 'QTE', start: 1 },
+  salesActivities: { prefix: 'SACT', start: 1 },
 });
 if (db.collection('accounts').length === 0) {
   console.log('[boot] empty database — seeding demo data');
@@ -97,7 +110,16 @@ api.get('/meta', (_req, res) => {
     documentStatuses: DOCUMENT_STATUSES,
     actionStatuses: ACTION_STATUSES,
     actionSources: ACTION_SOURCES,
+    carrierModes: CARRIER_MODES,
+    carrierStatuses: CARRIER_STATUSES,
+    regions: REGIONS,
+    caseResponsibility: CASE_RESPONSIBILITY,
+    quoteStatuses: QUOTE_STATUSES,
+    salesActivityTypes: SALES_ACTIVITY_TYPES,
+    leadSources: LEAD_SOURCES,
+    serviceTypes: SERVICE_TYPES,
     agents: db.collection('agents'),
+    carriers: db.collection('carriers').map((c) => ({ id: c.id, name: c.name, code: c.code })),
   });
 });
 
@@ -115,6 +137,7 @@ api.get('/dashboard', (req, res) => {
   const openCases = cases.filter((c) => openCaseStatuses.has(c.status));
   const now = Date.now();
   const slaBreached = openCases.filter((c) => c.slaDueAt && new Date(c.slaDueAt).getTime() < now);
+  const casesWithCarrier = openCases.filter((c) => c.responsibility === 'carrier').length;
 
   const openPipeline = deals.filter((d) => d.stage !== 'won' && d.stage !== 'lost');
   const weightedPipeline = openPipeline.reduce(
@@ -172,6 +195,8 @@ api.get('/dashboard', (req, res) => {
       openActions: openActions.length,
       overdueActions: overdueActions.length,
       expiringAgreements: expiringAgreements.length,
+      casesWithCarrier,
+      carriers: db.collection('carriers').length,
     },
     byPriority,
     byCategory,
@@ -390,7 +415,7 @@ api.post('/contacts', asyncH((req, res) => {
 
 // --- Cases (customer service) ------------------------------------------------
 api.get('/cases', (req, res) => {
-  const { brand, status, priority, category, assigneeId, accountId, origin, q, sla } = req.query;
+  const { brand, status, priority, category, assigneeId, accountId, carrierId, responsibility, withCarrier, origin, q, sla } = req.query;
   let rows = [...db.collection('cases')];
   if (brand) rows = rows.filter((r) => r.brand === brand);
   if (status) rows = rows.filter((r) => r.status === status);
@@ -398,6 +423,10 @@ api.get('/cases', (req, res) => {
   if (category) rows = rows.filter((r) => r.category === category);
   if (assigneeId) rows = rows.filter((r) => r.assigneeId === assigneeId);
   if (accountId) rows = rows.filter((r) => r.accountId === accountId);
+  if (carrierId) rows = rows.filter((r) => r.carrierId === carrierId);
+  if (responsibility) rows = rows.filter((r) => r.responsibility === responsibility);
+  // withCarrier=true → cases the carrier still has to resolve.
+  if (withCarrier === 'true') rows = rows.filter((r) => r.responsibility === 'carrier' && !['resolved', 'closed'].includes(r.status));
   if (origin) rows = rows.filter((r) => r.origin === origin);
   if (q) {
     const s = q.toLowerCase();
@@ -406,6 +435,7 @@ api.get('/cases', (req, res) => {
         (r.subject || '').toLowerCase().includes(s) ||
         (r.shipmentRef || '').toLowerCase().includes(s) ||
         (r.accountName || '').toLowerCase().includes(s) ||
+        (r.carrierName || '').toLowerCase().includes(s) ||
         r.id.toLowerCase().includes(s),
     );
   }
@@ -423,6 +453,7 @@ api.get('/cases/:id', (req, res) => {
     account: c.accountId ? db.getById('accounts', c.accountId) : null,
     contact: c.contactId ? db.getById('contacts', c.contactId) : null,
     shipment: c.shipmentId ? db.getById('shipments', c.shipmentId) : null,
+    carrier: c.carrierId ? db.getById('carriers', c.carrierId) : null,
     assignee: c.assigneeId ? db.getById('agents', c.assigneeId) : null,
   });
 });
@@ -433,6 +464,10 @@ api.post('/cases', asyncH((req, res) => {
   const account = b.accountId ? db.getById('accounts', b.accountId) : null;
   const priority = b.priority || 'medium';
   const now = new Date().toISOString();
+  const shipment = b.shipmentId ? db.getById('shipments', b.shipmentId) : null;
+  const category = b.category || 'general';
+  const carrierId = b.carrierId || shipment?.carrierId || null;
+  const carrier = carrierId ? db.getById('carriers', carrierId) : null;
   const newCase = {
     id: db.nextId('CASE'),
     subject: b.subject,
@@ -441,8 +476,11 @@ api.post('/cases', asyncH((req, res) => {
     accountName: account?.name ?? null,
     contactId: b.contactId || null,
     shipmentId: b.shipmentId || null,
-    shipmentRef: b.shipmentRef || (b.shipmentId ? db.getById('shipments', b.shipmentId)?.reference : null) || null,
-    category: b.category || 'general',
+    shipmentRef: b.shipmentRef || shipment?.reference || null,
+    carrierId,
+    carrierName: carrier?.name ?? shipment?.carrier ?? null,
+    responsibility: b.responsibility || responsibilityForCategory(category),
+    category,
     priority,
     status: b.status || 'new',
     origin: b.origin || 'manual',
@@ -467,13 +505,21 @@ api.patch('/cases/:id', asyncH((req, res) => {
 
   // Keep denormalised fields in sync.
   if (b.assigneeId !== undefined) patch.assigneeName = b.assigneeId ? db.getById('agents', b.assigneeId)?.name : null;
+  if (b.carrierId !== undefined) patch.carrierName = b.carrierId ? db.getById('carriers', b.carrierId)?.name : null;
   if (b.priority && b.priority !== existing.priority && !b.slaDueAt) {
     patch.slaDueAt = slaDueDate(b.priority, new Date(existing.createdAt));
   }
+  if (b.status && ['resolved', 'closed'].includes(b.status) && !existing.resolvedAt) {
+    patch.resolvedAt = new Date().toISOString();
+  }
 
   const timeline = existing.timeline || [];
+  const at = new Date().toISOString();
   if (b.status && b.status !== existing.status) {
-    timeline.push({ type: 'system', message: `Status changed to ${b.status}`, at: new Date().toISOString() });
+    timeline.push({ type: 'system', message: `Status changed to ${b.status}`, at });
+  }
+  if (b.responsibility && b.responsibility !== existing.responsibility) {
+    timeline.push({ type: 'system', message: `Responsibility set to ${b.responsibility}${b.responsibility === 'carrier' ? ' — awaiting carrier' : ''}`, at });
   }
   patch.timeline = timeline;
   const updated = db.update('cases', req.params.id, patch);
@@ -572,6 +618,10 @@ api.get('/deals/:id', (req, res) => {
     ...decorateDeal(d),
     account: d.accountId ? db.getById('accounts', d.accountId) : null,
     owner: d.ownerId ? db.getById('agents', d.ownerId) : null,
+    quotes: db.filter('quotes', (q) => q.dealId === d.id).map(decorateQuote),
+    activities: db.filter('salesActivities', (x) => x.dealId === d.id)
+      .sort((a, b) => new Date(b.at) - new Date(a.at))
+      .map((x) => ({ ...x, agentName: x.agentId ? db.getById('agents', x.agentId)?.name : null })),
   });
 });
 
@@ -587,9 +637,158 @@ api.put('/deals/:id/bluesheet', asyncH((req, res) => {
 api.patch('/deals/:id', asyncH((req, res) => {
   const existing = db.getById('deals', req.params.id);
   if (!existing) return res.status(404).json({ error: 'Deal not found' });
-  const updated = db.update('deals', req.params.id, req.body || {});
+  const b = req.body || {};
+  const patch = { ...b };
+  // Stamp a close date and log win/loss when a deal reaches a terminal stage.
+  if (b.stage && ['won', 'lost'].includes(b.stage) && !['won', 'lost'].includes(existing.stage)) {
+    patch.closedAt = new Date().toISOString();
+  }
+  if (b.ownerId !== undefined) patch.ownerName = b.ownerId ? db.getById('agents', b.ownerId)?.name : null;
+  const updated = db.update('deals', req.params.id, patch);
   res.json(decorateDeal(updated));
 }));
+
+// --- Sales: quotes (with carrier buy/sell rate lines) -----------------------
+api.get('/quotes', (req, res) => {
+  const { brand, status, accountId, dealId } = req.query;
+  let rows = [...db.collection('quotes')];
+  if (brand) rows = rows.filter((r) => r.brand === brand);
+  if (status) rows = rows.filter((r) => r.status === status);
+  if (accountId) rows = rows.filter((r) => r.accountId === accountId);
+  if (dealId) rows = rows.filter((r) => r.dealId === dealId);
+  rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(rows.map(decorateQuote));
+});
+
+api.post('/quotes', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.title && !b.accountId) throw new ValidationError('title or accountId is required');
+  const account = b.accountId ? db.getById('accounts', b.accountId) : null;
+  const now = new Date().toISOString();
+  const quote = {
+    id: db.nextId('QTE'),
+    title: b.title || `Quote for ${account?.name || 'prospect'}`,
+    accountId: account?.id ?? null,
+    dealId: b.dealId || null,
+    brand: b.brand || account?.brand || 'EFM',
+    status: b.status || 'draft',
+    ownerId: b.ownerId || null,
+    validUntil: b.validUntil || null,
+    currency: b.currency || 'AUD',
+    lines: (b.lines || []).map((l, i) => ({ id: `QL-${i + 1}`, ...l })),
+    notes: b.notes || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert('quotes', quote);
+  res.status(201).json(decorateQuote(quote));
+}));
+
+api.patch('/quotes/:id', asyncH((req, res) => {
+  const existing = db.getById('quotes', req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Quote not found' });
+  const updated = db.update('quotes', req.params.id, req.body || {});
+  res.json(decorateQuote(updated));
+}));
+
+function decorateQuote(q) {
+  const totals = quoteTotals(q.lines);
+  return {
+    ...q,
+    accountName: q.accountId ? db.getById('accounts', q.accountId)?.name : null,
+    ownerName: q.ownerId ? db.getById('agents', q.ownerId)?.name : null,
+    lines: (q.lines || []).map((l) => ({ ...l, carrierName: l.carrierId ? db.getById('carriers', l.carrierId)?.name : l.carrierName || null })),
+    totals,
+  };
+}
+
+// --- Sales: activity log per deal -------------------------------------------
+api.post('/deals/:id/activities', asyncH((req, res) => {
+  const deal = db.getById('deals', req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Deal not found' });
+  const b = req.body || {};
+  const activity = {
+    id: db.nextId('SACT'),
+    dealId: deal.id,
+    accountId: deal.accountId || null,
+    type: b.type || 'note',
+    subject: b.subject || '',
+    agentId: b.agentId || deal.ownerId || null,
+    at: new Date().toISOString(),
+  };
+  db.insert('salesActivities', activity);
+  res.status(201).json(activity);
+}));
+
+// --- Sales overview / reporting ---------------------------------------------
+api.get('/sales/overview', (req, res) => {
+  const brand = req.query.brand;
+  const deals = db.collection('deals').filter((d) => !brand || d.brand === brand);
+  const open = deals.filter((d) => !['won', 'lost'].includes(d.stage));
+  const won = deals.filter((d) => d.stage === 'won');
+  const lost = deals.filter((d) => d.stage === 'lost');
+  const closed = won.length + lost.length;
+
+  const sum = (arr, f = (d) => d.value) => Math.round(arr.reduce((s, d) => s + (f(d) || 0), 0));
+  const weighted = Math.round(open.reduce((s, d) => s + d.value * ((stageMeta(d.stage)?.probability ?? 0) / 100), 0));
+
+  const groupBy = (arr, key) => {
+    const m = {};
+    for (const d of arr) {
+      const k = typeof key === 'function' ? key(d) : d[key];
+      const g = (m[k] = m[k] || { key: k, count: 0, value: 0 });
+      g.count += 1; g.value += d.value || 0;
+    }
+    return Object.values(m).map((g) => ({ ...g, value: Math.round(g.value) })).sort((a, b) => b.value - a.value);
+  };
+
+  // Forecast by expected-close month for open deals (weighted).
+  const forecast = {};
+  for (const d of open) {
+    if (!d.expectedCloseAt) continue;
+    const key = new Date(d.expectedCloseAt).toISOString().slice(0, 7);
+    const g = (forecast[key] = forecast[key] || { month: key, value: 0, weighted: 0, count: 0 });
+    g.count += 1; g.value += d.value; g.weighted += d.value * ((stageMeta(d.stage)?.probability ?? 0) / 100);
+  }
+
+  const agents = db.collection('agents').filter((a) => a.team === 'Sales' || deals.some((d) => d.ownerId === a.id));
+  const byOwner = agents.map((a) => {
+    const mine = deals.filter((d) => d.ownerId === a.id);
+    const myOpen = mine.filter((d) => !['won', 'lost'].includes(d.stage));
+    const myWon = mine.filter((d) => d.stage === 'won');
+    return {
+      id: a.id, name: a.name, target: a.salesTarget || 0,
+      openValue: sum(myOpen), wonValue: sum(myWon),
+      weighted: Math.round(myOpen.reduce((s, d) => s + d.value * ((stageMeta(d.stage)?.probability ?? 0) / 100), 0)),
+      openCount: myOpen.length, wonCount: myWon.length,
+    };
+  }).filter((o) => o.openCount || o.wonCount || o.target);
+
+  const quotes = db.collection('quotes').filter((qt) => !brand || qt.brand === brand);
+  const outstandingQuotes = quotes.filter((qt) => ['draft', 'sent'].includes(qt.status));
+
+  res.json({
+    kpis: {
+      openValue: sum(open),
+      weightedValue: weighted,
+      wonValue: sum(won),
+      lostValue: sum(lost),
+      openCount: open.length,
+      wonCount: won.length,
+      winRate: closed ? Math.round((won.length / closed) * 100) : null,
+      avgDealSize: open.length ? Math.round(sum(open) / open.length) : 0,
+      quotesOutstanding: outstandingQuotes.length,
+      quotesOutstandingValue: Math.round(outstandingQuotes.reduce((s, qt) => s + quoteTotals(qt.lines).sell, 0)),
+    },
+    byService: groupBy(open, 'serviceType'),
+    bySource: groupBy(open, (d) => d.source || 'Direct'),
+    byOwner,
+    forecast: Object.values(forecast).map((f) => ({ ...f, value: Math.round(f.value), weighted: Math.round(f.weighted) })).sort((a, b) => a.month.localeCompare(b.month)),
+    topDeals: [...open].sort((a, b) => b.value - a.value).slice(0, 6).map(decorateDeal),
+    recentActivities: [...db.collection('salesActivities')].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 10)
+      .map((x) => ({ ...x, dealName: db.getById('deals', x.dealId)?.name, agentName: x.agentId ? db.getById('agents', x.agentId)?.name : null })),
+  });
+});
 
 function decorateDeal(d) {
   const meta = stageMeta(d.stage);
@@ -622,15 +821,16 @@ function blueSheetScore(bs) {
 
 // --- Shipments ---------------------------------------------------------------
 api.get('/shipments', (req, res) => {
-  const { brand, status, accountId, exceptions, q } = req.query;
+  const { brand, status, accountId, carrierId, exceptions, q } = req.query;
   let rows = [...db.collection('shipments')];
   if (brand) rows = rows.filter((r) => r.brand === brand);
   if (status) rows = rows.filter((r) => r.status === status);
   if (accountId) rows = rows.filter((r) => r.accountId === accountId);
+  if (carrierId) rows = rows.filter((r) => r.carrierId === carrierId);
   if (exceptions === 'true') rows = rows.filter((r) => r.hasOpenException);
   if (q) {
     const s = q.toLowerCase();
-    rows = rows.filter((r) => r.reference.toLowerCase().includes(s) || (r.destination || '').toLowerCase().includes(s));
+    rows = rows.filter((r) => r.reference.toLowerCase().includes(s) || (r.destination || '').toLowerCase().includes(s) || (r.carrier || '').toLowerCase().includes(s));
   }
   rows.sort((a, b) => new Date(b.lastEventAt || b.updatedAt) - new Date(a.lastEventAt || a.updatedAt));
   res.json(rows.map((s) => ({ ...s, accountName: s.accountId ? db.getById('accounts', s.accountId)?.name : null })));
@@ -642,8 +842,125 @@ api.get('/shipments/:id', (req, res) => {
   res.json({
     ...s,
     account: s.accountId ? db.getById('accounts', s.accountId) : null,
+    carrier: s.carrierId ? db.getById('carriers', s.carrierId) : null,
     events: db.filter('events', (e) => e.shipmentId === s.id).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt)),
     cases: db.filter('cases', (c) => c.shipmentId === s.id),
+  });
+});
+
+// --- Carriers (transport-provider setup) ------------------------------------
+const OPEN_CASE = new Set(['new', 'open', 'pending', 'escalated']);
+
+function carrierStats(carrierId) {
+  const cases = db.filter('cases', (c) => c.carrierId === carrierId);
+  const shipments = db.filter('shipments', (s) => s.carrierId === carrierId);
+  const openCases = cases.filter((c) => OPEN_CASE.has(c.status));
+  const withCarrier = openCases.filter((c) => c.responsibility === 'carrier');
+  const resolved = cases.filter((c) => ['resolved', 'closed'].includes(c.status));
+  const delivered = shipments.filter((s) => ['delivered', 'pod-captured'].includes(s.status));
+  const exceptions = shipments.filter((s) => s.hasOpenException).length;
+  // Average resolution time (hours) for resolved cases that have timestamps.
+  const resolvedTimed = resolved.filter((c) => c.resolvedAt && c.createdAt);
+  const avgResolutionH = resolvedTimed.length
+    ? Math.round(
+        resolvedTimed.reduce((sum, c) => sum + (new Date(c.resolvedAt) - new Date(c.createdAt)) / 3600000, 0) /
+          resolvedTimed.length,
+      )
+    : null;
+  const onTimePct = shipments.length ? Math.round((delivered.length / shipments.length) * 100) : null;
+  return {
+    caseCount: cases.length,
+    openCases: openCases.length,
+    withCarrier: withCarrier.length,
+    resolved: resolved.length,
+    shipments: shipments.length,
+    exceptions,
+    exceptionRate: shipments.length ? Math.round((exceptions / shipments.length) * 100) : 0,
+    avgResolutionH,
+    onTimePct,
+  };
+}
+
+api.get('/carriers', (req, res) => {
+  const { mode, status, region, q } = req.query;
+  let rows = [...db.collection('carriers')];
+  if (mode) rows = rows.filter((r) => (r.modes || []).includes(mode));
+  if (status) rows = rows.filter((r) => r.status === status);
+  if (region) rows = rows.filter((r) => (r.regions || []).includes(region));
+  if (q) {
+    const s = q.toLowerCase();
+    rows = rows.filter((r) => r.name.toLowerCase().includes(s) || (r.code || '').toLowerCase().includes(s));
+  }
+  res.json(rows.map((c) => ({ ...c, stats: carrierStats(c.id) })).sort((a, b) => b.stats.withCarrier - a.stats.withCarrier));
+});
+
+api.get('/carriers/:id', (req, res) => {
+  const c = db.getById('carriers', req.params.id);
+  if (!c) return res.status(404).json({ error: 'Carrier not found' });
+  const cases = db.filter('cases', (x) => x.carrierId === c.id)
+    .sort((a, b) => new Date(b.lastActivityAt || b.createdAt) - new Date(a.lastActivityAt || a.createdAt))
+    .map(withSla);
+  res.json({
+    ...c,
+    stats: carrierStats(c.id),
+    cases,
+    shipments: db.filter('shipments', (s) => s.carrierId === c.id).sort((a, b) => new Date(b.lastEventAt || b.updatedAt) - new Date(a.lastEventAt || a.updatedAt)),
+  });
+});
+
+api.post('/carriers', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.name) throw new ValidationError('name is required');
+  const now = new Date().toISOString();
+  const carrier = {
+    id: db.nextId('CARR'),
+    name: b.name,
+    code: b.code || b.name.slice(0, 4).toUpperCase(),
+    modes: b.modes || ['Road'],
+    regions: b.regions || [],
+    status: b.status || 'active',
+    country: b.country || 'AU',
+    accountManager: b.accountManager || '',
+    phone: b.phone || '',
+    email: b.email || '',
+    website: b.website || '',
+    trackingUrl: b.trackingUrl || '',
+    abn: b.abn || '',
+    accountCode: b.accountCode || '',
+    onTimeTarget: b.onTimeTarget != null ? Number(b.onTimeTarget) : 95,
+    notes: b.notes || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert('carriers', carrier);
+  res.status(201).json(carrier);
+}));
+
+api.patch('/carriers/:id', asyncH((req, res) => {
+  const updated = db.update('carriers', req.params.id, req.body || {});
+  if (!updated) return res.status(404).json({ error: 'Carrier not found' });
+  res.json(updated);
+}));
+
+// Carrier performance report — cases by carrier, still-with-carrier, on-time.
+api.get('/reports/carriers', (req, res) => {
+  const brand = req.query.brand;
+  const carriers = db.collection('carriers');
+  const rows = carriers.map((c) => {
+    const stats = carrierStats(c.id);
+    return { id: c.id, name: c.name, code: c.code, status: c.status, modes: c.modes, onTimeTarget: c.onTimeTarget, ...stats };
+  });
+  // Unassigned / no-carrier cases too.
+  const orphanCases = db.filter('cases', (c) => !c.carrierId && (!brand || c.brand === brand));
+  res.json({
+    carriers: rows.sort((a, b) => b.withCarrier - a.withCarrier || b.caseCount - a.caseCount),
+    totals: {
+      carriers: carriers.length,
+      preferred: carriers.filter((c) => c.status === 'preferred').length,
+      casesWithCarrier: rows.reduce((s, r) => s + r.withCarrier, 0),
+      openCases: rows.reduce((s, r) => s + r.openCases, 0),
+      unassignedCases: orphanCases.length,
+    },
   });
 });
 

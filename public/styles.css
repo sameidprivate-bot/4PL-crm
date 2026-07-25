@@ -309,6 +309,15 @@ table.data.mini .btn--danger { padding: 4px 8px; }
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* Tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tab { padding: 9px 16px; font-weight: 600; font-size: 13.5px; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* Carrier mode chips */
+.mode-chip { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: var(--slate-bg); color: var(--slate); }
+
 .doc-group-label { font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.03em; margin: 4px 0 6px; }
 .doc-item { display: flex; align-items: center; gap: 10px; padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; margin-bottom: 6px; font-size: 12.5px; }
 .doc-item a { color: var(--primary); font-weight: 600; }

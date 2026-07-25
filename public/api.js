@@ -49,6 +49,18 @@ export const api = {
   shipments: (q) => req('GET', '/shipments' + qs(q)),
   shipment: (id) => req('GET', `/shipments/${id}`),
 
+  carriers: (q) => req('GET', '/carriers' + qs(q)),
+  carrier: (id) => req('GET', `/carriers/${id}`),
+  createCarrier: (b) => req('POST', '/carriers', b),
+  updateCarrier: (id, b) => req('PATCH', `/carriers/${id}`, b),
+  carrierReport: (q) => req('GET', '/reports/carriers' + qs(q)),
+
+  quotes: (q) => req('GET', '/quotes' + qs(q)),
+  createQuote: (b) => req('POST', '/quotes', b),
+  updateQuote: (id, b) => req('PATCH', `/quotes/${id}`, b),
+  salesOverview: (q) => req('GET', '/sales/overview' + qs(q)),
+  addDealActivity: (id, b) => req('POST', `/deals/${id}/activities`, b),
+
   events: (q) => req('GET', '/events' + qs(q)),
   sendEvent: (b) => req('POST', '/events/efmapp', b),
 };

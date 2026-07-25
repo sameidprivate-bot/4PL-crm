@@ -145,6 +145,23 @@ export function actionStatusBadge(s) {
   return `<span class="badge ${ACTION_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
 }
 
+const CARRIER_STATUS_CLS = { preferred: 'b-green', active: 'b-blue', onboarding: 'b-amber', suspended: 'b-red' };
+export function carrierStatusBadge(s) {
+  return `<span class="badge ${CARRIER_STATUS_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
+}
+
+const RESP_CLS = { carrier: 'b-amber', internal: 'b-blue', customer: 'b-violet' };
+export function responsibilityBadge(r) {
+  if (!r) return '';
+  const label = r === 'carrier' ? '↳ With carrier' : titleCase(r);
+  return `<span class="badge ${RESP_CLS[r] || 'b-slate'}">${label}</span>`;
+}
+
+const QUOTE_CLS = { draft: 'b-slate', sent: 'b-blue', accepted: 'b-green', declined: 'b-red', expired: 'b-amber' };
+export function quoteStatusBadge(s) {
+  return `<span class="badge ${QUOTE_CLS[s] || 'b-slate'}">${titleCase(s)}</span>`;
+}
+
 let toastId = 0;
 export function toast(title, msg = '', type = 'info') {
   const wrap = document.getElementById('toasts');

@@ -19,8 +19,9 @@ the exceptions already triaged.
 | Capability | What it does |
 |---|---|
 | **efmAPP ingestion** | `POST /api/events/efmapp` accepts status milestones; exceptions auto-create linked, prioritised cases and update the shipment timeline. |
-| **Case management** | Full CS desk: priority, category, status, assignee, SLA tracking (with breach detection), notes and an activity timeline. |
-| **Sales pipeline** | Drag-and-drop Kanban across stages with weighted forecast, plus a **Miller Heiman "Blue Sheet"** (Strategic Selling) on every deal. |
+| **Case management** | Full CS desk: priority, category, status, assignee, SLA tracking (with breach detection), notes and an activity timeline. Cases carry a **carrier** and a **responsibility** (carrier / internal / customer). |
+| **Carriers** | Carrier setup for the AU/NZ transport panel (StarTrack, Team Global Express, Followmont, Toll, Mainfreight, …). See **cases by carrier**, what's **still with the carrier to resolve**, and a **performance report** (open/with-carrier/resolved, avg resolution time, exception rate, on-time %). |
+| **Sales** | Tabbed **Overview / Pipeline / Quotes**: weighted forecast by month, win rate, rep-vs-target, pipeline by service & source; drag-and-drop Kanban with a **Miller Heiman Blue Sheet** per deal; **quotes** with carrier buy/sell rate lines and margin; win/loss close workflow. |
 | **Account management** | 360° account view — health/tier, contacts, cases, deals, shipments, a **document library** (rate cards, agreements, QBRs, monthly decks) and an **action register**. |
 | **Shipments** | Consignment register with live status, ETA and full efmAPP event timeline per shipment. |
 | **Dashboard** | KPIs (open cases, SLA breaches, exceptions today, pipeline value…), SLA watch-list and a live event feed. |
@@ -123,6 +124,47 @@ Each account keeps a **document library** and an **action register**:
 GET/POST   /api/accounts/:id/documents      PATCH/DELETE /api/documents/:id
 GET/POST   /api/accounts/:id/actions        PATCH        /api/actions/:id
 ```
+
+---
+
+## Carriers & carrier-linked cases
+
+The transport panel is real Australian & New Zealand carriers — **StarTrack, Team Global
+Express, Followmont Transport, Toll Group, Aramex Australia, Border Express, Mainfreight,
+NZ Couriers, CouriersPlease, Northline** — each with modes, regions, account manager, ABN/NZBN,
+account code and an on-time target.
+
+Every case carries a **carrierId** and a **responsibility** (`carrier` / `internal` / `customer`).
+Freight failures (delivery exceptions, delays, damage, lost freight, POD, claims) default to
+**carrier**; customs/billing/booking stay **internal**. That powers:
+
+- **Cases by carrier** — filter the case desk by carrier, and a `↳ Still with carrier` toggle
+  showing exactly what the carrier still has to resolve.
+- **Carrier drawer** — with-carrier / on-time / avg-resolution KPIs, plus the case list split into
+  *still with carrier*, *other open*, and *resolved*.
+- **Carrier performance report** (`GET /api/reports/carriers`) — cases, open, with-carrier,
+  resolved, avg resolution time, exception rate and on-time % per carrier.
+
+```
+GET/POST /api/carriers          GET /api/carriers/:id        PATCH /api/carriers/:id
+GET /api/reports/carriers
+GET /api/cases?carrierId=…&responsibility=carrier&withCarrier=true
+```
+
+## Sales
+
+`GET /api/sales/overview` returns pipeline value, weighted forecast, win rate, avg deal size,
+quotes outstanding, forecast by close month, pipeline by service/source, and rep-vs-target.
+
+**Quotes** carry carrier buy/sell rate lines and compute sell / buy / margin / margin %:
+
+```
+GET/POST /api/quotes            PATCH /api/quotes/:id
+POST /api/deals/:id/activities  # log a sales call/meeting/quote
+PATCH /api/deals/:id            # stage moves; won/lost stamp a close date
+```
+
+All monetary values are AUD; addresses and lanes are Australian & New Zealand.
 
 ---
 

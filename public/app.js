@@ -4,6 +4,7 @@ import {
   el, fmtMoney, fmtDate, fmtDateTime, timeAgo, badge, brandChip,
   priorityBadge, statusBadge, slaBadge, healthBadge, shipmentStatusBadge,
   eventIcon, titleCase, toast, escAttr, escHtml, docTypeBadge, docMeta, actionStatusBadge,
+  carrierStatusBadge, responsibilityBadge, quoteStatusBadge,
 } from './ui.js';
 
 const state = {
@@ -47,7 +48,9 @@ modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop)
 const routes = {
   dashboard: renderDashboard,
   cases: renderCases,
-  pipeline: renderPipeline,
+  sales: renderSales,
+  pipeline: renderSales, // alias
+  carriers: renderCarriers,
   accounts: renderAccounts,
   shipments: renderShipments,
   events: renderEvents,
@@ -55,7 +58,8 @@ const routes = {
 const TITLES = {
   dashboard: 'Dashboard',
   cases: 'Case Management',
-  pipeline: 'Sales Pipeline',
+  sales: 'Sales',
+  carriers: 'Carriers',
   accounts: 'Account Management',
   shipments: 'Shipments',
   events: 'efmAPP Status Feed',
@@ -63,8 +67,10 @@ const TITLES = {
 
 async function router() {
   const hash = location.hash.replace(/^#\//, '') || 'dashboard';
-  const [view] = hash.split('/');
+  const parts = hash.split('/');
+  const view = parts[0];
   state.view = routes[view] ? view : 'dashboard';
+  state.tab = parts[1] || null;
   document.getElementById('viewTitle').textContent = TITLES[state.view];
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === state.view));
   document.getElementById('topbarActions').innerHTML = '';
@@ -103,7 +109,15 @@ async function refreshBadges() {
     cb.textContent = dash.kpis.openCases || '';
     const eb = document.getElementById('badgeEvents');
     eb.textContent = dash.kpis.exceptionsToday ? `${dash.kpis.exceptionsToday}!` : '';
+    const carb = document.getElementById('badgeCarriers');
+    if (carb) carb.textContent = dash.kpis.casesWithCarrier || '';
   } catch { /* ignore */ }
+}
+
+// A simple hash-driven tab bar.
+function tabBar(base, tabs, active) {
+  return `<div class="tabs">${tabs.map((t) =>
+    `<a href="#/${base}${t.key ? '/' + t.key : ''}" class="tab ${(active || '') === t.key ? 'active' : ''}">${t.label}</a>`).join('')}</div>`;
 }
 
 // ============================================================================
@@ -120,6 +134,7 @@ async function renderDashboard(host) {
     { label: 'Open pipeline', value: fmtMoney(k.openPipelineValue), sub: `${fmtMoney(k.weightedPipelineValue)} weighted` },
     { label: 'Won (closed)', value: fmtMoney(k.wonValue), sub: 'this dataset', cls: 'kpi--good' },
     { label: 'Accounts', value: k.accounts, sub: `${k.atRiskAccounts} at-risk`, cls: k.atRiskAccounts ? 'kpi--alert' : '' },
+    { label: 'With carrier', value: k.casesWithCarrier ?? 0, sub: 'cases to resolve', cls: k.casesWithCarrier ? 'kpi--alert' : '' },
     { label: 'Account actions', value: k.openActions ?? 0, sub: `${k.overdueActions ?? 0} overdue`, cls: k.overdueActions ? 'kpi--alert' : '' },
     { label: 'Agreements expiring', value: k.expiringAgreements ?? 0, sub: 'within 60 days', cls: k.expiringAgreements ? 'kpi--alert' : '' },
   ];
@@ -175,7 +190,7 @@ async function renderDashboard(host) {
     </div>
 
     <div class="card card--pad" style="margin-top:16px">
-      <div class="section-head" style="margin-top:0"><h2>Pipeline value by stage</h2><a class="muted" href="#/pipeline">Open board →</a></div>
+      <div class="section-head" style="margin-top:0"><h2>Pipeline value by stage</h2><a class="muted" href="#/sales/pipeline">Open board →</a></div>
       <div class="meter">${stageMeter}</div>
     </div>`;
 
@@ -228,17 +243,17 @@ async function renderCases(host) {
       ${opts.map((o) => `<option value="${o}" ${val === o ? 'selected' : ''}>${titleCase(o)}</option>`).join('')}
     </select>`;
 
+  const carrierSel = `<select data-filter="carrierId"><option value="">All carriers</option>${(m.carriers || []).map((c) => `<option value="${c.id}" ${filters.carrierId === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}</select>`;
+
   host.innerHTML = `
     <div class="toolbar">
-      <input class="search" placeholder="Search cases, refs, accounts…" data-filter="q" value="${filters.q || ''}" />
+      <input class="search" placeholder="Search cases, refs, accounts, carriers…" data-filter="q" value="${filters.q || ''}" />
       ${sel('status', m.caseStatuses, filters.status, 'All statuses')}
       ${sel('priority', m.casePriorities, filters.priority, 'All priorities')}
       ${sel('category', m.caseCategories, filters.category, 'All categories')}
-      <select data-filter="origin">
-        <option value="">Any origin</option>
-        <option value="efmapp-auto" ${filters.origin === 'efmapp-auto' ? 'selected' : ''}>efmAPP auto</option>
-        <option value="manual" ${filters.origin === 'manual' ? 'selected' : ''}>Manual</option>
-      </select>
+      ${carrierSel}
+      ${sel('responsibility', m.caseResponsibility, filters.responsibility, 'Any owner of fix')}
+      <button class="btn btn--sm ${filters.withCarrier === 'true' ? 'btn--primary' : ''}" id="withCarrierToggle">↳ Still with carrier</button>
       <button class="btn btn--sm ${filters.sla === 'breached' ? 'btn--primary' : ''}" id="slaToggle">SLA breached</button>
       <div class="spacer"></div>
       <span class="muted">${cases.length} case(s)</span>
@@ -246,7 +261,7 @@ async function renderCases(host) {
     <div class="card table-wrap">
       <table class="data">
         <thead><tr>
-          <th>Case</th><th>Account</th><th>Category</th><th>Priority</th><th>Status</th><th>SLA</th><th>Assignee</th><th>Updated</th>
+          <th>Case</th><th>Account</th><th>Carrier</th><th>Category</th><th>Priority</th><th>Status</th><th>SLA</th><th>Assignee</th>
         </tr></thead>
         <tbody>
           ${cases.length ? cases.map(caseRow).join('') : `<tr><td colspan="8"><div class="empty">No cases match.</div></td></tr>`}
@@ -264,6 +279,10 @@ async function renderCases(host) {
     window.__caseFilters = { ...collectFilters(host), sla: filters.sla === 'breached' ? '' : 'breached' };
     renderCases(host);
   };
+  host.querySelector('#withCarrierToggle').onclick = () => {
+    window.__caseFilters = { ...collectFilters(host), withCarrier: filters.withCarrier === 'true' ? '' : 'true' };
+    renderCases(host);
+  };
   host.querySelectorAll('tr[data-case]').forEach((tr) =>
     tr.addEventListener('click', () => openCaseDrawer(tr.dataset.case)));
 }
@@ -271,24 +290,24 @@ async function renderCases(host) {
 function collectFilters(host) {
   const f = {};
   host.querySelectorAll('[data-filter]').forEach((n) => { if (n.value) f[n.dataset.filter] = n.value; });
-  const slaBtn = host.querySelector('#slaToggle');
-  if (slaBtn && slaBtn.classList.contains('btn--primary')) f.sla = 'breached';
+  if (host.querySelector('#slaToggle')?.classList.contains('btn--primary')) f.sla = 'breached';
+  if (host.querySelector('#withCarrierToggle')?.classList.contains('btn--primary')) f.withCarrier = 'true';
   return f;
 }
 
 function caseRow(c) {
   return `<tr class="clickable" data-case="${c.id}">
     <td>
-      <div class="cell-strong">${c.subject}</div>
+      <div class="cell-strong">${escHtml(c.subject)}</div>
       <div class="cell-sub"><span class="mono">${c.id}</span>${c.origin === 'efmapp-auto' ? ' · <span class="badge b-violet" style="padding:1px 6px">⚡ efmAPP</span>' : ''}${c.shipmentRef ? ' · ' + c.shipmentRef : ''}</div>
     </td>
-    <td>${c.accountName ? `${c.accountName}<br><span class="cell-sub">${brandChip(c.brand)}</span>` : `<span class="cell-sub">Unlinked ${brandChip(c.brand)}</span>`}</td>
+    <td>${c.accountName ? `${escHtml(c.accountName)}<br><span class="cell-sub">${brandChip(c.brand)}</span>` : `<span class="cell-sub">Unlinked ${brandChip(c.brand)}</span>`}</td>
+    <td>${c.carrierName ? `${escHtml(c.carrierName)}<br>${c.responsibility === 'carrier' && !['resolved', 'closed'].includes(c.status) ? responsibilityBadge('carrier') : ''}` : '<span class="cell-sub">—</span>'}</td>
     <td>${badge(titleCase(c.category), 'b-slate')}</td>
     <td>${priorityBadge(c.priority)}</td>
     <td>${statusBadge(c.status)}</td>
     <td>${slaBadge(c)}</td>
     <td>${c.assigneeName || '<span class="cell-sub">Unassigned</span>'}</td>
-    <td class="cell-sub">${timeAgo(c.lastActivityAt || c.updatedAt)}</td>
   </tr>`;
 }
 
@@ -308,8 +327,8 @@ async function openCaseDrawer(id) {
     <div class="drawer__head">
       <button class="drawer__close" data-close>×</button>
       <div class="drawer__eyebrow">${c.id} · ${brandChip(c.brand)} ${c.origin === 'efmapp-auto' ? '· ⚡ auto-raised' : ''}</div>
-      <div class="drawer__title">${c.subject}</div>
-      <div class="chips" style="margin-top:10px">${priorityBadge(c.priority)} ${statusBadge(c.status)} ${slaBadge(c)}</div>
+      <div class="drawer__title">${escHtml(c.subject)}</div>
+      <div class="chips" style="margin-top:10px">${priorityBadge(c.priority)} ${statusBadge(c.status)} ${slaBadge(c)} ${c.responsibility ? responsibilityBadge(c.responsibility) : ''}</div>
     </div>
     <div class="drawer__body">
       <div class="drawer__section">
@@ -318,6 +337,8 @@ async function openCaseDrawer(id) {
           <label class="field"><span>Priority</span><select data-edit="priority">${opt(m.casePriorities, c.priority)}</select></label>
           <label class="field"><span>Category</span><select data-edit="category">${opt(m.caseCategories, c.category)}</select></label>
           <label class="field"><span>Assignee</span><select data-edit="assigneeId"><option value="">Unassigned</option>${agentOpts(c.assigneeId)}</select></label>
+          <label class="field"><span>Carrier</span><select data-edit="carrierId"><option value="">— none —</option>${(m.carriers || []).map((cr) => `<option value="${cr.id}" ${c.carrierId === cr.id ? 'selected' : ''}>${cr.name}</option>`).join('')}</select></label>
+          <label class="field"><span>Owner of fix</span><select data-edit="responsibility">${opt(m.caseResponsibility, c.responsibility || 'internal')}</select></label>
         </div>
         <button class="btn btn--primary btn--sm" id="saveCase">Save changes</button>
       </div>
@@ -325,14 +346,15 @@ async function openCaseDrawer(id) {
       <div class="drawer__section">
         <h4>Details</h4>
         <dl class="dl">
-          <dt>Account</dt><dd>${c.account ? `<a href="#" data-acc="${c.account.id}">${c.account.name}</a>` : 'Unlinked'}</dd>
-          ${c.contact ? `<dt>Contact</dt><dd>${c.contact.name} · ${c.contact.email}</dd>` : ''}
+          <dt>Account</dt><dd>${c.account ? `<a href="#" data-acc="${c.account.id}">${escHtml(c.account.name)}</a>` : 'Unlinked'}</dd>
+          ${c.contact ? `<dt>Contact</dt><dd>${escHtml(c.contact.name)} · ${escHtml(c.contact.email)}</dd>` : ''}
+          ${c.carrier ? `<dt>Carrier</dt><dd><a href="#" data-carr="${c.carrier.id}">${escHtml(c.carrier.name)}</a> ${c.responsibility === 'carrier' && !['resolved', 'closed'].includes(c.status) ? responsibilityBadge('carrier') : ''}</dd>` : ''}
           ${c.shipment ? `<dt>Shipment</dt><dd><a href="#" data-shp="${c.shipment.id}"><span class="mono">${c.shipment.reference}</span></a> — ${shipmentStatusBadge(c.shipment.status)}</dd>` : ''}
           <dt>Origin</dt><dd>${c.origin === 'efmapp-auto' ? '⚡ efmAPP status event' : titleCase(c.origin)}</dd>
           <dt>SLA due</dt><dd>${fmtDateTime(c.slaDueAt)} (${slaBadge(c)})</dd>
           <dt>Created</dt><dd>${fmtDateTime(c.createdAt)}</dd>
         </dl>
-        ${c.description ? `<p style="margin-top:12px;white-space:pre-wrap;color:var(--text-muted);font-size:13px">${c.description}</p>` : ''}
+        ${c.description ? `<p style="margin-top:12px;white-space:pre-wrap;color:var(--text-muted);font-size:13px">${escHtml(c.description)}</p>` : ''}
       </div>
 
       <div class="drawer__section">
@@ -366,6 +388,8 @@ async function openCaseDrawer(id) {
   if (accLink) accLink.onclick = (e) => { e.preventDefault(); closeDrawer(); openAccountDrawer(accLink.dataset.acc); };
   const shpLink = drawer.querySelector('[data-shp]');
   if (shpLink) shpLink.onclick = (e) => { e.preventDefault(); closeDrawer(); openShipmentDrawer(shpLink.dataset.shp); };
+  const carrLink = drawer.querySelector('[data-carr]');
+  if (carrLink) carrLink.onclick = (e) => { e.preventDefault(); closeDrawer(); openCarrierDrawer(carrLink.dataset.carr); };
 }
 
 function openNewCaseModal() {
@@ -399,6 +423,234 @@ function openNewCaseModal() {
       if (!body.subject) return toast('Subject required', '', 'warn');
       await api.createCase(body);
       closeModal(); toast('Case created', '', 'success'); router();
+    };
+  });
+}
+
+// ============================================================================
+// SALES (tabbed: Overview · Pipeline · Quotes)
+// ============================================================================
+async function renderSales(host) {
+  const tab = state.tab || '';
+  host.innerHTML = tabBar('sales', [
+    { key: '', label: 'Overview' },
+    { key: 'pipeline', label: 'Pipeline' },
+    { key: 'quotes', label: 'Quotes' },
+  ], tab) + `<div id="salesContent"></div>`;
+  const content = host.querySelector('#salesContent');
+  if (tab === 'pipeline') return renderPipeline(content);
+  if (tab === 'quotes') return renderQuotes(content);
+  return renderSalesOverview(content);
+}
+
+async function renderSalesOverview(host) {
+  const s = await api.salesOverview(bq());
+  const k = s.kpis;
+  const kpiCards = [
+    { label: 'Open pipeline', value: fmtMoney(k.openValue), sub: `${k.openCount} deals` },
+    { label: 'Weighted forecast', value: fmtMoney(k.weightedValue), sub: 'probability-adjusted' },
+    { label: 'Won', value: fmtMoney(k.wonValue), sub: `${k.wonCount} deals`, cls: 'kpi--good' },
+    { label: 'Win rate', value: k.winRate == null ? '—' : `${k.winRate}%`, sub: 'won / closed' },
+    { label: 'Avg deal size', value: fmtMoney(k.avgDealSize), sub: 'open deals' },
+    { label: 'Quotes outstanding', value: k.quotesOutstanding, sub: fmtMoney(k.quotesOutstandingValue) },
+  ];
+
+  const meter = (rows, max, colorFn) => rows.map((r) => `
+    <div class="meter__row">
+      <span class="meter__label" title="${escAttr(r.label)}">${escHtml(r.label)}</span>
+      <span class="meter__track"><span class="meter__fill" style="width:${max ? (r.value / max) * 100 : 0}%;background:${colorFn ? colorFn(r) : 'var(--primary)'}"></span></span>
+      <span class="meter__num" style="width:auto">${fmtMoney(r.value)}</span>
+    </div>`).join('');
+
+  const svc = s.byService.map((x) => ({ label: titleCase(x.key || 'Other'), value: x.value }));
+  const src = s.bySource.map((x) => ({ label: x.key || 'Direct', value: x.value }));
+  const maxSvc = Math.max(1, ...svc.map((x) => x.value));
+  const maxSrc = Math.max(1, ...src.map((x) => x.value));
+
+  const forecastMax = Math.max(1, ...s.forecast.map((f) => f.value));
+  const forecast = s.forecast.length ? s.forecast.map((f) => `
+    <div class="meter__row">
+      <span class="meter__label">${f.month}</span>
+      <span class="meter__track">
+        <span class="meter__fill" style="width:${(f.value / forecastMax) * 100}%;background:var(--slate)"></span>
+        <span class="meter__fill" style="width:${(f.weighted / forecastMax) * 100}%;background:var(--primary);margin-top:-8px"></span>
+      </span>
+      <span class="meter__num" style="width:auto">${fmtMoney(f.weighted)}</span>
+    </div>`).join('') : '<div class="cell-sub">No dated open deals.</div>';
+
+  const owners = s.byOwner.map((o) => {
+    const pct = o.target ? Math.min(100, Math.round((o.wonValue / o.target) * 100)) : 0;
+    return `<div class="inline-item">
+      <div style="flex:1">
+        <div class="cell-strong">${escHtml(o.name)}</div>
+        <div class="cell-sub">Won ${fmtMoney(o.wonValue)}${o.target ? ` of ${fmtMoney(o.target)} target` : ''} · ${o.openCount} open · weighted ${fmtMoney(o.weighted)}</div>
+        ${o.target ? `<div class="probbar" style="margin-top:6px"><i style="width:${pct}%;background:${pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--amber)' : 'var(--primary)'}"></i></div>` : ''}
+      </div>
+      <span class="badge b-slate">${o.target ? pct + '%' : '—'}</span>
+    </div>`;
+  }).join('') || '<div class="cell-sub">No sales reps.</div>';
+
+  const topDeals = s.topDeals.map((d) => `
+    <div class="inline-item clickable" data-deal="${d.id}">
+      <div><div class="cell-strong">${escHtml(d.name)}</div><div class="cell-sub">${escHtml(d.accountName || 'Prospect')} · ${badge(titleCase(d.stage), 'b-slate')}</div></div>
+      <b>${fmtMoney(d.value)}</b>
+    </div>`).join('') || '<div class="cell-sub">No open deals.</div>';
+
+  const activities = s.recentActivities.map((a) => `
+    <div class="feed__item">
+      <div class="feed__ico" style="background:var(--blue-bg);color:var(--blue)">${{ call: '📞', email: '✉️', meeting: '🤝', 'site-visit': '📍', proposal: '📑', quote: '💲', note: '📝' }[a.type] || '•'}</div>
+      <div class="feed__body"><div class="feed__title">${escHtml(a.subject)}</div><div class="feed__meta">${escHtml(a.dealName || '')}${a.agentName ? ' · ' + escHtml(a.agentName) : ''}</div></div>
+      <div class="feed__time">${timeAgo(a.at)}</div>
+    </div>`).join('') || '<div class="cell-sub">No recent activity.</div>';
+
+  host.innerHTML = `
+    <div class="grid kpis">${kpiCards.map(kpiCard).join('')}</div>
+    <div class="two-col" style="margin-top:20px">
+      <div>
+        <div class="card card--pad">
+          <div class="section-head" style="margin-top:0"><h2>Weighted forecast by close month</h2><span class="muted">bar = total · red = weighted</span></div>
+          <div class="meter">${forecast}</div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>Rep performance vs target</h2></div>
+          <div class="inline-list">${owners}</div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>Recent sales activity</h2></div>
+          <div class="feed">${activities}</div>
+        </div>
+      </div>
+      <div>
+        <div class="card card--pad">
+          <div class="section-head" style="margin-top:0"><h2>Pipeline by service</h2></div>
+          <div class="meter">${meter(svc, maxSvc)}</div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>Pipeline by source</h2></div>
+          <div class="meter">${meter(src, maxSrc, () => 'var(--accent)')}</div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>Top open deals</h2><a class="muted" href="#/sales/pipeline">Board →</a></div>
+          <div class="inline-list">${topDeals}</div>
+        </div>
+      </div>
+    </div>`;
+  host.querySelectorAll('[data-deal]').forEach((n) => n.onclick = () => openDealDrawer(n.dataset.deal));
+}
+
+async function renderQuotes(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newQuoteBtn">+ New quote</button>`;
+  document.getElementById('newQuoteBtn').onclick = () => openQuoteModal();
+  const quotes = await api.quotes(bq());
+  host.innerHTML = `
+    <div class="card table-wrap">
+      <table class="data">
+        <thead><tr><th>Quote</th><th>Account</th><th>Lines</th><th>Sell</th><th>Margin</th><th>Status</th><th>Valid until</th></tr></thead>
+        <tbody>${quotes.length ? quotes.map((q) => `
+          <tr class="clickable" data-quote="${q.id}">
+            <td><div class="cell-strong">${escHtml(q.title)}</div><div class="cell-sub mono">${q.id}${q.dealId ? ' · ' + q.dealId : ''}</div></td>
+            <td>${escHtml(q.accountName || '—')} ${brandChip(q.brand)}</td>
+            <td>${q.lines.length}</td>
+            <td class="cell-strong">${fmtMoney(q.totals.sell)}</td>
+            <td>${fmtMoney(q.totals.margin)} <span class="cell-sub">(${q.totals.marginPct}%)</span></td>
+            <td>${quoteStatusBadge(q.status)}</td>
+            <td class="cell-sub">${q.validUntil ? fmtDate(q.validUntil) : '—'}</td>
+          </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No quotes yet.</div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  host.querySelectorAll('[data-quote]').forEach((tr) => tr.onclick = () => openQuoteDrawer(quotes.find((q) => q.id === tr.dataset.quote)));
+}
+
+function openQuoteDrawer(q) {
+  if (!q) return;
+  const m = state.meta;
+  const lines = q.lines.map((l) => `
+    <tr>
+      <td><div class="cell-strong">${escHtml(l.lane || l.service || '—')}</div><div class="cell-sub">${l.mode || ''}${l.carrierName ? ' · ' + escHtml(l.carrierName) : ''}</div></td>
+      <td class="cell-sub">${l.units || 1}×</td>
+      <td class="cell-sub">${fmtMoney(l.buyRate)}</td>
+      <td class="cell-strong">${fmtMoney(l.sellRate)}</td>
+    </tr>`).join('');
+  openDrawer(`
+    <div class="drawer__head">
+      <button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${q.id} · ${brandChip(q.brand)}</div>
+      <div class="drawer__title">${escHtml(q.title)}</div>
+      <div class="chips" style="margin-top:10px">${quoteStatusBadge(q.status)} <span class="badge b-slate">Sell ${fmtMoney(q.totals.sell)}</span> <span class="badge b-green">Margin ${q.totals.marginPct}%</span></div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section">
+        <dl class="dl">
+          <dt>Account</dt><dd>${escHtml(q.accountName || '—')}</dd>
+          <dt>Owner</dt><dd>${q.ownerName || '—'}</dd>
+          <dt>Currency</dt><dd>${q.currency}</dd>
+          <dt>Valid until</dt><dd>${q.validUntil ? fmtDate(q.validUntil) : '—'}</dd>
+          <dt>Buy / Sell</dt><dd>${fmtMoney(q.totals.buy)} / <b>${fmtMoney(q.totals.sell)}</b></dd>
+          <dt>Margin</dt><dd>${fmtMoney(q.totals.margin)} (${q.totals.marginPct}%)</dd>
+        </dl>
+      </div>
+      <div class="drawer__section">
+        <h4>Rate lines</h4>
+        <div class="table-wrap"><table class="data mini"><thead><tr><th>Lane / service</th><th>Qty</th><th>Buy</th><th>Sell</th></tr></thead><tbody>${lines || '<tr><td colspan=4 class="cell-sub">No lines.</td></tr>'}</tbody></table></div>
+      </div>
+      <div class="drawer__section">
+        <h4>Status</h4>
+        <label class="field"><select id="qStatus">${m.quoteStatuses.map((st) => `<option value="${st}" ${st === q.status ? 'selected' : ''}>${titleCase(st)}</option>`).join('')}</select></label>
+        <button class="btn btn--primary btn--sm" id="saveQuote">Update status</button>
+      </div>
+      ${q.notes ? `<div class="drawer__section"><h4>Notes</h4><p class="cell-sub">${escHtml(q.notes)}</p></div>` : ''}
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveQuote').onclick = async () => {
+    await api.updateQuote(q.id, { status: val('qStatus') });
+    toast('Quote updated', q.id, 'success'); closeDrawer(); router();
+  };
+}
+
+function openQuoteModal(dealId, accountId) {
+  const m = state.meta;
+  Promise.all([api.accounts(bq()), api.carriers()]).then(([accounts, carriers]) => {
+    const carrierOpts = (sel) => `<option value="">— carrier —</option>` + carriers.map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${c.name}</option>`).join('');
+    const lineRow = () => `<tr data-qline>
+      <td><input data-f="lane" placeholder="Lane e.g. Melbourne VIC → Sydney NSW" /></td>
+      <td><select data-f="mode"><option value="">Mode</option>${m.carrierModes.map((x) => `<option>${x}</option>`).join('')}</select></td>
+      <td><select data-f="carrierId">${carrierOpts()}</select></td>
+      <td><input data-f="units" type="number" value="1" style="width:60px" /></td>
+      <td><input data-f="buyRate" type="number" placeholder="Buy" style="width:80px" /></td>
+      <td><input data-f="sellRate" type="number" placeholder="Sell" style="width:80px" /></td>
+      <td><button class="btn btn--sm btn--danger" data-rm-row>✕</button></td>
+    </tr>`;
+    openModal(`
+      <div class="modal__head">New quote</div>
+      <div class="modal__body">
+        <label class="field"><span>Title</span><input id="q-title" placeholder="e.g. National LTL rate proposal" /></label>
+        <div class="form-row">
+          <label class="field"><span>Account</span><select id="q-account"><option value="">— prospect —</option>${accounts.map((a) => `<option value="${a.id}" ${a.id === accountId ? 'selected' : ''}>${a.name}</option>`).join('')}</select></label>
+          <label class="field"><span>Owner</span><select id="q-owner"><option value="">—</option>${m.agents.map((a) => `<option value="${a.id}">${a.name}</option>`).join('')}</select></label>
+          <label class="field"><span>Valid until</span><input id="q-valid" type="date" /></label>
+          <label class="field"><span>Status</span><select id="q-status">${m.quoteStatuses.map((s) => `<option>${s}</option>`).join('')}</select></label>
+        </div>
+        <h4 style="margin:6px 0">Rate lines</h4>
+        <div class="table-wrap"><table class="data mini" id="q-lines"><thead><tr><th>Lane</th><th>Mode</th><th>Carrier</th><th>Qty</th><th>Buy</th><th>Sell</th><th></th></tr></thead><tbody>${lineRow()}</tbody></table></div>
+        <button class="btn btn--sm" id="q-addline" style="margin-top:6px">+ Add line</button>
+      </div>
+      <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createQuote">Create quote</button></div>`);
+    modalHost.querySelector('[data-close]').onclick = closeModal;
+    modalHost.querySelector('#q-addline').onclick = () => modalHost.querySelector('#q-lines tbody').insertAdjacentHTML('beforeend', lineRow());
+    modalHost.addEventListener('click', (e) => { const rm = e.target.closest('[data-rm-row]'); if (rm) rm.closest('tr').remove(); });
+    modalHost.querySelector('#createQuote').onclick = async () => {
+      const lines = [...modalHost.querySelectorAll('#q-lines tbody tr')].map((tr) => {
+        const o = {}; tr.querySelectorAll('[data-f]').forEach((n) => o[n.dataset.f] = n.value.trim());
+        o.units = Number(o.units) || 1; o.buyRate = Number(o.buyRate) || 0; o.sellRate = Number(o.sellRate) || 0;
+        return o;
+      }).filter((l) => l.lane || l.sellRate);
+      const body = {
+        title: val('q-title'), accountId: val('q-account') || null, dealId: dealId || null,
+        ownerId: val('q-owner') || null, validUntil: val('q-valid') || null, status: val('q-status'), lines,
+      };
+      await api.createQuote(body);
+      closeModal(); toast('Quote created', '', 'success'); router();
     };
   });
 }
@@ -503,15 +755,40 @@ async function openDealDrawer(id) {
       <div class="drawer__section">
         <div class="form-row">
           <label class="field"><span>Stage</span><select id="stageSel">${m.dealStages.map((s) => `<option value="${s.key}" ${s.key === d.stage ? 'selected' : ''}>${s.label} (${s.probability}%)</option>`).join('')}</select></label>
-          <label class="field"><span>Value (USD)</span><input id="valInput" type="number" value="${d.value}" /></label>
+          <label class="field"><span>Value (AUD)</span><input id="valInput" type="number" value="${d.value}" /></label>
         </div>
         <dl class="dl">
           <dt>Account</dt><dd>${escHtml(d.accountName || d.prospectName || '—')}</dd>
           <dt>Owner</dt><dd>${d.ownerName || '—'}</dd>
           <dt>Source</dt><dd>${d.source || '—'}</dd>
           <dt>Expected close</dt><dd>${d.expectedCloseAt ? fmtDate(d.expectedCloseAt) : '—'}</dd>
+          ${d.closedAt ? `<dt>Closed</dt><dd>${fmtDate(d.closedAt)}</dd>` : ''}
+          ${d.lostReason ? `<dt>Lost reason</dt><dd>${escHtml(d.lostReason)}</dd>` : ''}
         </dl>
-        <button class="btn btn--primary btn--sm" id="saveDeal" style="margin-top:6px">Save stage &amp; value</button>
+        <div class="chips" style="margin-top:8px">
+          <button class="btn btn--primary btn--sm" id="saveDeal">Save stage &amp; value</button>
+          ${!['won', 'lost'].includes(d.stage) ? `<button class="btn btn--sm" id="winBtn" style="color:var(--green)">✓ Mark won</button><button class="btn btn--sm btn--danger" id="lossBtn">✕ Mark lost</button>` : ''}
+        </div>
+      </div>
+
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 8px"><h4 style="margin:0">Quotes</h4><button class="btn btn--sm" id="addQuoteBtn">+ New quote</button></div>
+        <div class="inline-list">${(d.quotes || []).length ? d.quotes.map((q) => `
+          <div class="inline-item clickable" data-quote="${q.id}">
+            <div><div class="cell-strong">${escHtml(q.title)}</div><div class="cell-sub">${q.lines.length} lines · margin ${q.totals.marginPct}%</div></div>
+            <div class="chips">${quoteStatusBadge(q.status)} <b>${fmtMoney(q.totals.sell)}</b></div>
+          </div>`).join('') : '<div class="cell-sub">No quotes yet.</div>'}</div>
+      </div>
+
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 8px"><h4 style="margin:0">Sales activity</h4></div>
+        <div class="form-row">
+          <select id="sactType">${m.salesActivityTypes.map((t) => `<option value="${t}">${titleCase(t)}</option>`).join('')}</select>
+          <input id="sactSubject" placeholder="Log a call, meeting, email…" />
+        </div>
+        <button class="btn btn--sm" id="addSact" style="margin-top:8px">Add activity</button>
+        <div class="timeline" style="margin-top:14px">${(d.activities || []).length ? d.activities.map((a) => `
+          <div class="timeline__item"><div class="timeline__msg">${titleCase(a.type)}: ${escHtml(a.subject)}</div><div class="timeline__time">${fmtDateTime(a.at)}${a.agentName ? ' · ' + escHtml(a.agentName) : ''}</div></div>`).join('') : '<div class="cell-sub">No activity logged.</div>'}</div>
       </div>
 
       <div class="drawer__section" style="border-top:1px solid var(--border);padding-top:18px">
@@ -575,6 +852,27 @@ async function openDealDrawer(id) {
   drawer.querySelector('#saveDeal').onclick = async () => {
     await api.updateDeal(id, { stage: val('stageSel'), value: Number(val('valInput')) });
     toast('Deal updated', '', 'success'); closeDrawer(); router();
+  };
+  const winBtn = drawer.querySelector('#winBtn');
+  if (winBtn) winBtn.onclick = async () => {
+    await api.updateDeal(id, { stage: 'won', value: Number(val('valInput')) });
+    toast('Deal won 🎉', d.id, 'success'); closeDrawer(); router();
+  };
+  const lossBtn = drawer.querySelector('#lossBtn');
+  if (lossBtn) lossBtn.onclick = async () => {
+    const reason = prompt('Reason for loss?') || '';
+    await api.updateDeal(id, { stage: 'lost', lostReason: reason });
+    toast('Deal marked lost', d.id, 'warn'); closeDrawer(); router();
+  };
+  drawer.querySelector('#addQuoteBtn').onclick = () => openQuoteModal(id, d.accountId);
+  drawer.querySelectorAll('[data-quote]').forEach((n) => n.onclick = async () => {
+    const quotes = await api.quotes({ dealId: id });
+    openQuoteDrawer(quotes.find((q) => q.id === n.dataset.quote));
+  });
+  drawer.querySelector('#addSact').onclick = async () => {
+    const subject = val('sactSubject'); if (!subject) return;
+    await api.addDealActivity(id, { type: val('sactType'), subject });
+    toast('Activity logged', '', 'success'); openDealDrawer(id);
   };
 
   // Repeatable-row add buttons.
@@ -1046,6 +1344,175 @@ async function openShipmentDrawer(id) {
     </div>`);
   drawer.querySelector('[data-close]').onclick = closeDrawer;
   drawer.querySelectorAll('[data-case]').forEach((n) => n.onclick = () => { closeDrawer(); openCaseDrawer(n.dataset.case); });
+}
+
+// ============================================================================
+// CARRIERS (tabbed: Directory · Performance report)
+// ============================================================================
+async function renderCarriers(host) {
+  const tab = state.tab || '';
+  host.innerHTML = tabBar('carriers', [
+    { key: '', label: 'Directory' },
+    { key: 'performance', label: 'Performance report' },
+  ], tab) + `<div id="carrierContent"></div>`;
+  const content = host.querySelector('#carrierContent');
+  if (tab === 'performance') return renderCarrierReport(content);
+  return renderCarrierDirectory(content);
+}
+
+function modeChips(modes) {
+  return (modes || []).map((m) => `<span class="mode-chip">${m}</span>`).join(' ');
+}
+
+async function renderCarrierDirectory(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newCarrierBtn">+ New carrier</button>`;
+  document.getElementById('newCarrierBtn').onclick = () => openCarrierModal();
+  const carriers = await api.carriers();
+  host.innerHTML = `
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+      ${carriers.map(carrierCard).join('') || '<div class="empty">No carriers.</div>'}
+    </div>`;
+  host.querySelectorAll('[data-carrier]').forEach((n) => n.onclick = () => openCarrierDrawer(n.dataset.carrier));
+}
+
+function carrierCard(c) {
+  const s = c.stats;
+  const onTime = s.onTimePct;
+  const otColor = onTime == null ? 'var(--slate)' : onTime >= (c.onTimeTarget || 95) ? 'var(--green)' : onTime >= 80 ? 'var(--amber)' : 'var(--red)';
+  return `<div class="card card--pad clickable" data-carrier="${c.id}" style="cursor:pointer">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+      <div>
+        <div class="cell-strong" style="font-size:15px">${escHtml(c.name)} <span class="cell-sub mono">${c.code}</span></div>
+        <div class="cell-sub">${escHtml((c.regions || []).join(', ') || c.country)}</div>
+      </div>
+      ${carrierStatusBadge(c.status)}
+    </div>
+    <div class="chips" style="margin:10px 0">${modeChips(c.modes)}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;color:var(--text-muted);flex-wrap:wrap;gap:6px">
+      <span><b style="color:var(--text)">${s.caseCount}</b> cases</span>
+      <span><b style="color:${s.withCarrier ? 'var(--amber)' : 'var(--text)'}">${s.withCarrier}</b> with carrier</span>
+      <span><b style="color:var(--text)">${s.shipments}</b> shipments</span>
+      <span>on-time <b style="color:${otColor}">${onTime == null ? '—' : onTime + '%'}</b></span>
+    </div>
+  </div>`;
+}
+
+async function openCarrierDrawer(id) {
+  const c = await api.carrier(id);
+  const s = c.stats;
+  const openCase = new Set(['new', 'open', 'pending', 'escalated']);
+  const withCarrier = c.cases.filter((x) => x.responsibility === 'carrier' && openCase.has(x.status));
+  const otherOpen = c.cases.filter((x) => openCase.has(x.status) && x.responsibility !== 'carrier');
+  const resolved = c.cases.filter((x) => ['resolved', 'closed'].includes(x.status));
+
+  const caseItem = (x) => `<div class="inline-item clickable" data-case="${x.id}">
+    <div><div class="cell-strong">${escHtml(x.subject)}</div><div class="cell-sub">${x.id} · ${titleCase(x.category)}${x.shipmentRef ? ' · ' + x.shipmentRef : ''}</div></div>
+    <div class="chips">${priorityBadge(x.priority)} ${statusBadge(x.status)}</div>
+  </div>`;
+
+  const section = (title, arr, empty) => `<div class="drawer__section"><h4>${title} <span class="muted">${arr.length}</span></h4><div class="inline-list">${arr.length ? arr.map(caseItem).join('') : `<div class="cell-sub">${empty}</div>`}</div></div>`;
+
+  openDrawer(`
+    <div class="drawer__head">
+      <button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${c.id} · <span class="mono">${c.code}</span></div>
+      <div class="drawer__title">${escHtml(c.name)}</div>
+      <div class="chips" style="margin-top:10px">${carrierStatusBadge(c.status)} ${modeChips(c.modes)}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px">
+        <div class="card kpi" style="padding:12px"><div class="kpi__label">With carrier</div><div class="kpi__value" style="font-size:22px;color:${s.withCarrier ? 'var(--amber)' : 'var(--text)'}">${s.withCarrier}</div><div class="kpi__sub">to resolve</div></div>
+        <div class="card kpi" style="padding:12px"><div class="kpi__label">On-time</div><div class="kpi__value" style="font-size:22px">${s.onTimePct == null ? '—' : s.onTimePct + '%'}</div><div class="kpi__sub">target ${c.onTimeTarget}%</div></div>
+        <div class="card kpi" style="padding:12px"><div class="kpi__label">Avg resolve</div><div class="kpi__value" style="font-size:22px">${s.avgResolutionH == null ? '—' : s.avgResolutionH + 'h'}</div><div class="kpi__sub">${s.resolved} resolved</div></div>
+      </div>
+
+      <div class="drawer__section">
+        <h4>Details</h4>
+        <dl class="dl">
+          <dt>Coverage</dt><dd>${escHtml((c.regions || []).join(', ') || '—')}</dd>
+          <dt>Modes</dt><dd>${(c.modes || []).join(', ')}</dd>
+          <dt>Account mgr</dt><dd>${escHtml(c.accountManager || '—')}</dd>
+          <dt>Phone</dt><dd>${escHtml(c.phone || '—')}</dd>
+          <dt>Email</dt><dd>${escHtml(c.email || '—')}</dd>
+          <dt>Account code</dt><dd class="mono">${escHtml(c.accountCode || '—')}</dd>
+          <dt>ABN / NZBN</dt><dd class="mono">${escHtml(c.abn || '—')}</dd>
+          <dt>Exception rate</dt><dd>${s.exceptionRate}% of ${s.shipments} shipments</dd>
+        </dl>
+        ${c.notes ? `<p class="cell-sub" style="margin-top:10px">${escHtml(c.notes)}</p>` : ''}
+        <div style="margin-top:12px"><label class="field"><span>Status</span><select id="carrStatus">${state.meta.carrierStatuses.map((st) => `<option value="${st}" ${st === c.status ? 'selected' : ''}>${titleCase(st)}</option>`).join('')}</select></label><button class="btn btn--sm btn--primary" id="saveCarrier">Update status</button></div>
+      </div>
+
+      ${section('⚠ Still with carrier to resolve', withCarrier, 'Nothing outstanding with this carrier 🎉')}
+      ${section('Other open cases', otherOpen, 'None.')}
+      ${section('Resolved / closed', resolved.slice(0, 8), 'None yet.')}
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveCarrier').onclick = async () => {
+    await api.updateCarrier(id, { status: val('carrStatus') });
+    toast('Carrier updated', c.name, 'success'); openCarrierDrawer(id);
+  };
+  drawer.querySelectorAll('[data-case]').forEach((n) => n.onclick = () => { closeDrawer(); openCaseDrawer(n.dataset.case); });
+}
+
+async function renderCarrierReport(host) {
+  const rep = await api.carrierReport(bq());
+  const t = rep.totals;
+  const maxCases = Math.max(1, ...rep.carriers.map((c) => c.caseCount));
+  host.innerHTML = `
+    <div class="grid kpis" style="margin-bottom:20px">
+      ${kpiCard({ label: 'Carriers', value: t.carriers, sub: `${t.preferred} preferred` })}
+      ${kpiCard({ label: 'Cases with carrier', value: t.casesWithCarrier, sub: 'awaiting carrier action', cls: t.casesWithCarrier ? 'kpi--alert' : '' })}
+      ${kpiCard({ label: 'Open cases (carrier-linked)', value: t.openCases, sub: 'across all carriers' })}
+      ${kpiCard({ label: 'Unassigned cases', value: t.unassignedCases, sub: 'no carrier set' })}
+    </div>
+    <div class="card table-wrap">
+      <table class="data">
+        <thead><tr><th>Carrier</th><th>Status</th><th>Cases</th><th>Open</th><th>With carrier</th><th>Resolved</th><th>Avg resolve</th><th>Exceptions</th><th>On-time</th></tr></thead>
+        <tbody>${rep.carriers.map((c) => {
+          const otColor = c.onTimePct == null ? 'var(--text-muted)' : c.onTimePct >= (c.onTimeTarget || 95) ? 'var(--green)' : c.onTimePct >= 80 ? 'var(--amber)' : 'var(--red)';
+          return `<tr class="clickable" data-carrier="${c.id}">
+            <td><div class="cell-strong">${escHtml(c.name)}</div><div class="cell-sub">${modeChips(c.modes)}</div></td>
+            <td>${carrierStatusBadge(c.status)}</td>
+            <td>${c.caseCount}</td>
+            <td>${c.openCases}</td>
+            <td>${c.withCarrier ? `<b style="color:var(--amber)">${c.withCarrier}</b>` : '0'}</td>
+            <td>${c.resolved}</td>
+            <td class="cell-sub">${c.avgResolutionH == null ? '—' : c.avgResolutionH + 'h'}</td>
+            <td>${c.exceptions} <span class="cell-sub">(${c.exceptionRate}%)</span></td>
+            <td style="color:${otColor};font-weight:700">${c.onTimePct == null ? '—' : c.onTimePct + '%'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+  host.querySelectorAll('[data-carrier]').forEach((tr) => tr.onclick = () => openCarrierDrawer(tr.dataset.carrier));
+}
+
+function openCarrierModal() {
+  const m = state.meta;
+  openModal(`
+    <div class="modal__head">New carrier</div>
+    <div class="modal__body">
+      <label class="field"><span>Carrier name *</span><input id="c-name" placeholder="e.g. StarTrack" /></label>
+      <div class="form-row">
+        <label class="field"><span>Code</span><input id="c-code" placeholder="STK" /></label>
+        <label class="field"><span>Status</span><select id="c-status">${m.carrierStatuses.map((s) => `<option value="${s}" ${s === 'active' ? 'selected' : ''}>${titleCase(s)}</option>`).join('')}</select></label>
+        <label class="field"><span>Account manager</span><input id="c-am" /></label>
+        <label class="field"><span>Phone</span><input id="c-phone" /></label>
+        <label class="field"><span>Email</span><input id="c-email" /></label>
+        <label class="field"><span>On-time target %</span><input id="c-ot" type="number" value="95" /></label>
+      </div>
+      <label class="field"><span>Modes</span><div class="chips" id="c-modes">${m.carrierModes.map((x) => `<label class="badge b-slate" style="cursor:pointer"><input type="checkbox" value="${x}" style="width:auto;margin-right:4px" ${x === 'Road' ? 'checked' : ''}/>${x}</label>`).join('')}</div></label>
+      <label class="field"><span>Regions</span><select id="c-regions" multiple size="4">${m.regions.map((r) => `<option value="${r}">${r}</option>`).join('')}</select></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createCarrier">Create carrier</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createCarrier').onclick = async () => {
+    const modes = [...modalHost.querySelectorAll('#c-modes input:checked')].map((n) => n.value);
+    const regions = [...modalHost.querySelectorAll('#c-regions option:checked')].map((n) => n.value);
+    const body = { name: val('c-name'), code: val('c-code'), status: val('c-status'), accountManager: val('c-am'), phone: val('c-phone'), email: val('c-email'), onTimeTarget: Number(val('c-ot')) || 95, modes: modes.length ? modes : ['Road'], regions };
+    if (!body.name) return toast('Name required', '', 'warn');
+    await api.createCarrier(body); closeModal(); toast('Carrier created', '', 'success'); router();
+  };
 }
 
 // ============================================================================

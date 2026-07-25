@@ -22,6 +22,9 @@ const COLLECTIONS = [
   'agents',
   'documents',
   'actions',
+  'carriers',
+  'quotes',
+  'salesActivities',
 ];
 
 function emptyState() {
