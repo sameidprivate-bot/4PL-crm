@@ -1,7 +1,9 @@
 # MOVEiTcrm — 4PL Control Tower
 
-**MOVEiTcrm** is a control-tower CRM for the **EFM** and **AFS** fourth-party-logistics (4PL) brands.
-Styled in the MOVEiTcx / AFS Logistics brand palette (midnight blue + logistics red).
+**MOVEiTcrm** is a logistics control-tower CRM for the EFM & AFS business, segmented by
+**major service line — 4PL, 3PL and Global** (switchable from the sidebar; every view,
+KPI and report filters by service line). Styled in the MOVEiTcx / AFS Logistics brand
+palette (midnight blue + logistics red).
 It unifies the three things a 4PL customer-service and commercial team need in one
 place — **case management**, a **sales pipeline**, and **account management** — and wires
 them to live shipment telemetry so the desk works *proactively*.
@@ -25,6 +27,8 @@ the exceptions already triaged.
 | **Account management** | 360° account view — health/tier, contacts, cases, deals, shipments, a **document library** (rate cards, agreements, QBRs, monthly decks) and an **action register**. |
 | **Account Ops** | Cross-account registers: **annual price reviews** (per carrier/customer combination, customer, carrier, lane or network — each with its own increase date & method), **solution/engineering/analytics requests**, an **at-risk register**, **implementations** (new customer & carrier-change with checklists), and **credit claims**. |
 | **Live chat** | Floating live-chat console for the CS desk — inbound customer conversations, unread badges, polling, simulated customer replies, and one-click **raise case from chat**. |
+| **Marketing** | Campaign management (email, event, webinar, content, social, ABM…) with leads, MQL/SQL, spend, **pipeline influenced** and **ROI** — all by service line. |
+| **NPS &amp; CSAT** | Capture and report **Net Promoter Score** and **CSAT** — gauges, promoter/passive/detractor split, by-service-line breakdown, verbatims, and post-case CSAT capture from the case drawer. |
 | **Shipments** | Consignment register with live status, ETA and full efmAPP event timeline per shipment. |
 | **Dashboard** | KPIs (open cases, SLA breaches, exceptions today, pipeline value…), SLA watch-list and a live event feed. |
 | **Dual-brand** | Everything filters by EFM / AFS from the sidebar. |
@@ -212,6 +216,35 @@ GET /api/chat/sessions            POST /api/chat/sessions
 GET /api/chat/sessions/:id        POST /api/chat/sessions/:id/messages
 POST /api/chat/sessions/:id/read  POST /api/chat/sessions/:id/case
 ```
+
+---
+
+## Segmentation by service line
+
+The business is organised by **major service line — 4PL, 3PL, Global** (not by the EFM/AFS
+brands). The sidebar switcher scopes the entire app; every list, dashboard and report accepts
+`?brand=4PL|3PL|Global`. (The record field is still named `brand` for continuity; it now holds
+the service line.)
+
+## Marketing &amp; CX
+
+`GET /api/marketing/overview` — active campaigns, leads, MQL/SQL, opportunities, spend,
+pipeline influenced, ROI and cost-per-lead, plus breakdowns by type and service line.
+
+```
+GET/POST /api/campaigns          PATCH /api/campaigns/:id
+```
+
+`GET /api/reports/experience` — **NPS** (promoters/passives/detractors + score) and **CSAT**
+(average + % satisfied), broken down by service line, a monthly trend, recent verbatims and a
+detractor list.
+
+```
+GET/POST /api/surveys            # capture an NPS (0–10) or CSAT (1–5) response
+```
+
+NPS/CSAT can be captured from the Marketing → NPS &amp; CSAT tab, from an account, or as a
+**post-case CSAT** straight from the case drawer. NPS and CSAT also surface as dashboard KPIs.
 
 ---
 

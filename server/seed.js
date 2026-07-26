@@ -23,12 +23,12 @@ export function seed() {
 
   // --- Team: CS, account management & sales ---------------------------------
   const agents = [
-    { id: 'AGT-1', name: 'Priya Nair', role: 'CS Agent', team: 'Customer Service', brands: ['EFM', 'AFS'], active: true },
-    { id: 'AGT-2', name: 'Marcus Webb', role: 'CS Agent', team: 'Customer Service', brands: ['EFM'], active: true },
-    { id: 'AGT-3', name: 'Sofia Almeida', role: 'CS Team Lead', team: 'Customer Service', brands: ['AFS'], active: true },
-    { id: 'AGT-4', name: 'Daniel Cho', role: 'Account Manager', team: 'Accounts', brands: ['EFM', 'AFS'], active: true },
-    { id: 'AGT-5', name: 'Hannah Reyes', role: 'Sales Executive', team: 'Sales', brands: ['EFM', 'AFS'], active: true, salesTarget: 900000 },
-    { id: 'AGT-6', name: 'Jack Thompson', role: 'Business Development', team: 'Sales', brands: ['EFM', 'AFS'], active: true, salesTarget: 650000 },
+    { id: 'AGT-1', name: 'Priya Nair', role: 'CS Agent', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
+    { id: 'AGT-2', name: 'Marcus Webb', role: 'CS Agent', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
+    { id: 'AGT-3', name: 'Sofia Almeida', role: 'CS Team Lead', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
+    { id: 'AGT-4', name: 'Daniel Cho', role: 'Account Manager', team: 'Accounts', brands: ['4PL', '3PL', 'Global'], active: true },
+    { id: 'AGT-5', name: 'Hannah Reyes', role: 'Sales Executive', team: 'Sales', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 900000 },
+    { id: 'AGT-6', name: 'Jack Thompson', role: 'Business Development', team: 'Sales', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 650000 },
   ];
   agents.forEach((a) => db.insert('agents', a));
 
@@ -58,6 +58,13 @@ export function seed() {
     { id: 'ACC-7', name: 'Pilbara Mining Services', brand: 'EFM', industry: 'Mining & Industrial', tier: 'enterprise', health: 'healthy', region: 'WA', ownerId: 'AGT-4', annualRevenue: 1480000, activeSince: '2018-11-01', website: 'pilbaramining.com.au', phone: '+61 8 9200 6000', address: '5 Mill St, Perth WA 6000', notes: 'Remote-site freight to the Pilbara; Northline/Toll for NT/WA remote.' },
   ];
   accounts.forEach((a) => db.insert('accounts', { ...a, createdAt: a.activeSince, updatedAt: daysAgo(3) }));
+
+  // Segment the book of business by MAJOR SERVICE LINE (not EFM/AFS brand).
+  const SERVICE_BY_ACCOUNT = {
+    'ACC-1': '4PL', 'ACC-2': '3PL', 'ACC-3': '3PL', 'ACC-4': '3PL',
+    'ACC-5': 'Global', 'ACC-6': 'Global', 'ACC-7': '4PL',
+  };
+  for (const a of db.collection('accounts')) a.brand = SERVICE_BY_ACCOUNT[a.id] || '4PL';
 
   // --- Contacts -------------------------------------------------------------
   const contacts = [
@@ -354,6 +361,51 @@ export function seed() {
   ];
   chatMessages.forEach((m) => db.insert('chatMessages', m));
 
+  // --- Marketing campaigns (segmented by service line) ----------------------
+  const campaigns = [
+    { id: 'CMP-1', name: '4PL Control Tower — ANZ demand-gen', type: 'account-based', brand: '4PL', status: 'active', audience: 'Enterprise shippers, ANZ', channel: 'ABM + LinkedIn', startDate: dateOnly(-40), endDate: dateOnly(20), budget: 60000, cost: 42000, leads: 68, mql: 31, sql: 12, opportunities: 5, revenue: 930000, ownerId: 'AGT-5', notes: 'Targets 42 named 4PL prospects.' },
+    { id: 'CMP-2', name: '3PL warehousing webinar series', type: 'webinar', brand: '3PL', status: 'active', audience: 'Mid-market ops managers', channel: 'Webinar', startDate: dateOnly(-20), endDate: dateOnly(10), budget: 18000, cost: 12500, leads: 140, mql: 44, sql: 9, opportunities: 3, revenue: 210000, ownerId: 'AGT-6', notes: 'Monthly 3PL best-practice webinars.' },
+    { id: 'CMP-3', name: 'Trans-Tasman & Global freight guide', type: 'content', brand: 'Global', status: 'active', audience: 'Importers/exporters AU↔NZ', channel: 'Gated content', startDate: dateOnly(-30), endDate: dateOnly(30), budget: 15000, cost: 9800, leads: 96, mql: 28, sql: 7, opportunities: 4, revenue: 285000, ownerId: 'AGT-6', notes: 'Downloadable trans-Tasman rate & compliance guide.' },
+    { id: 'CMP-4', name: 'Peak-season readiness email nurture', type: 'email', brand: '4PL', status: 'completed', audience: 'Existing 4PL customers', channel: 'Email', startDate: dateOnly(-90), endDate: dateOnly(-20), budget: 8000, cost: 6200, leads: 52, mql: 18, sql: 6, opportunities: 3, revenue: 160000, ownerId: 'AGT-5', notes: 'Drove peak-season expansion conversations.' },
+    { id: 'CMP-5', name: 'MEGATRANS trade show 2026', type: 'event', brand: '3PL', status: 'planned', audience: 'Logistics buyers, Melbourne', channel: 'Trade show', startDate: dateOnly(35), endDate: dateOnly(37), budget: 55000, cost: 0, leads: 0, mql: 0, sql: 0, opportunities: 0, revenue: 0, ownerId: 'AGT-6', notes: 'Booth + speaking slot at MEGATRANS.' },
+    { id: 'CMP-6', name: 'Cold-chain compliance social campaign', type: 'social', brand: 'Global', status: 'paused', audience: 'Healthcare & pharma shippers', channel: 'LinkedIn + X', startDate: dateOnly(-15), endDate: dateOnly(45), budget: 12000, cost: 4300, leads: 22, mql: 6, sql: 1, opportunities: 0, revenue: 0, ownerId: 'AGT-6', notes: 'Paused pending Southern Cross remediation story.' },
+  ];
+  campaigns.forEach((c) => db.insert('campaigns', { ...c, createdAt: daysAgo(45), updatedAt: daysAgo(2) }));
+
+  // --- NPS & CSAT survey responses ------------------------------------------
+  const svy = (id, type, score, accountId, days, comment, channel, respondent) =>
+    ({ id, type, score, accountId, respondent: respondent || '', channel: channel || (type === 'csat' ? 'post-case' : 'email'), comment: comment || '', ownerId: 'AGT-4', respondedAt: daysAgo(days), createdAt: daysAgo(days) });
+  const surveys = [
+    // NPS
+    svy('SVY-1', 'nps', 9, 'ACC-1', 12, 'Control tower visibility has been a game-changer for peak season.', 'qbr', 'Elena Fischer'),
+    svy('SVY-2', 'nps', 10, 'ACC-7', 20, 'Remote-site delivery reliability is excellent.', 'qbr', 'Grace Liu'),
+    svy('SVY-3', 'nps', 7, 'ACC-2', 8, 'Good service; transit-time variance still a niggle.', 'email', 'Raj Patel'),
+    svy('SVY-4', 'nps', 4, 'ACC-3', 5, 'Two cold-chain excursions have shaken our confidence.', 'email', 'Dr. Amelia Stone'),
+    svy('SVY-5', 'nps', 8, 'ACC-5', 15, 'Trans-Tasman sailings mostly on time.', 'email', 'Ngaire Wilson'),
+    svy('SVY-6', 'nps', 9, 'ACC-4', 25, 'Followmont regional QLD coverage is great.', 'qbr', 'Carlos Mendez'),
+    svy('SVY-7', 'nps', 6, 'ACC-6', 3, 'Signature-required express occasionally missed.', 'email', 'Owen Clarke'),
+    // CSAT (post-case)
+    svy('SVY-8', 'csat', 5, 'ACC-1', 1, 'POD sent within minutes — thanks!', 'post-case', 'Tom Baker'),
+    svy('SVY-9', 'csat', 4, 'ACC-4', 2, 'Damage claim handled well.', 'post-case', 'Carlos Mendez'),
+    svy('SVY-10', 'csat', 2, 'ACC-3', 1, 'Customs hold took too long to resolve.', 'post-case', 'Dr. Amelia Stone'),
+    svy('SVY-11', 'csat', 5, 'ACC-2', 6, 'Billing query resolved quickly.', 'post-case', 'Raj Patel'),
+    svy('SVY-12', 'csat', 3, 'ACC-6', 2, 'Re-delivery arranged but slow to update.', 'post-case', 'Owen Clarke'),
+    // Older data point for trend
+    svy('SVY-13', 'nps', 8, 'ACC-1', 45, 'Consistent service quarter on quarter.', 'qbr', 'Elena Fischer'),
+    svy('SVY-14', 'csat', 4, 'ACC-7', 40, 'Query handled promptly.', 'post-case', 'Grace Liu'),
+  ];
+  surveys.forEach((s) => db.insert('surveys', s));
+
+  // Normalise every account-linked record to its account's service line.
+  const svcOf = (id) => db.getById('accounts', id)?.brand;
+  for (const coll of ['deals', 'shipments', 'cases', 'quotes', 'priceReviews', 'requests', 'risks', 'implementations', 'creditClaims', 'surveys']) {
+    for (const r of db.collection(coll)) {
+      if (r.accountId && svcOf(r.accountId)) r.brand = svcOf(r.accountId);
+      else if (r.brand === 'EFM') r.brand = '4PL';
+      else if (r.brand === 'AFS') r.brand = '3PL';
+    }
+  }
+
   // Keep id counters ahead of seeded records.
   db.syncCounters({
     accounts: { prefix: 'ACC', start: 1 },
@@ -376,16 +428,18 @@ export function seed() {
     creditClaims: { prefix: 'CLM', start: 1 },
     chatSessions: { prefix: 'CHAT', start: 1 },
     chatMessages: { prefix: 'MSG', start: 1 },
+    campaigns: { prefix: 'CMP', start: 1 },
+    surveys: { prefix: 'SVY', start: 1 },
   });
 
   // --- Replay a burst of efmAPP events (exercise carrier-linked auto-cases) --
   const replay = [
-    { shipmentRef: 'EFM-CON-88213', status: 'in-transit', brand: 'EFM', location: 'Albury, NSW', carrier: 'StarTrack', occurredAt: hoursAgo(6) },
-    { shipmentRef: 'AFS-CON-40118', status: 'customs-hold', brand: 'AFS', location: 'Adelaide Airport, SA', carrier: 'Toll Group', note: 'Import documentation review — temperature log requested', occurredAt: hoursAgo(4) },
-    { shipmentRef: 'EFM-CON-88245', status: 'delayed', brand: 'EFM', location: 'Kalgoorlie, WA', carrier: 'Team Global Express', note: 'Rail linehaul delay 24h', occurredAt: hoursAgo(3) },
-    { shipmentRef: 'AFS-CON-40201', status: 'failed-delivery', brand: 'AFS', location: 'Wellington, NZ', carrier: 'NZ Couriers', note: 'No one available to sign', occurredAt: hoursAgo(2) },
-    { shipmentRef: 'EFM-CON-88355', status: 'delayed', brand: 'EFM', location: 'Tennant Creek, NT', carrier: 'Northline', note: 'Road closure — flooding on Stuart Hwy', occurredAt: hoursAgo(2) },
-    { shipmentRef: 'AFS-CON-40155', status: 'delivered', brand: 'AFS', location: 'Melbourne, VIC', carrier: 'Border Express', occurredAt: hoursAgo(1) },
+    { shipmentRef: 'EFM-CON-88213', status: 'in-transit', brand: '4PL', location: 'Albury, NSW', carrier: 'StarTrack', occurredAt: hoursAgo(6) },
+    { shipmentRef: 'AFS-CON-40118', status: 'customs-hold', brand: '3PL', location: 'Adelaide Airport, SA', carrier: 'Toll Group', note: 'Import documentation review — temperature log requested', occurredAt: hoursAgo(4) },
+    { shipmentRef: 'EFM-CON-88245', status: 'delayed', brand: '4PL', location: 'Kalgoorlie, WA', carrier: 'Team Global Express', note: 'Rail linehaul delay 24h', occurredAt: hoursAgo(3) },
+    { shipmentRef: 'AFS-CON-40201', status: 'failed-delivery', brand: 'Global', location: 'Wellington, NZ', carrier: 'NZ Couriers', note: 'No one available to sign', occurredAt: hoursAgo(2) },
+    { shipmentRef: 'EFM-CON-88355', status: 'delayed', brand: '4PL', location: 'Tennant Creek, NT', carrier: 'Northline', note: 'Road closure — flooding on Stuart Hwy', occurredAt: hoursAgo(2) },
+    { shipmentRef: 'AFS-CON-40155', status: 'delivered', brand: '3PL', location: 'Melbourne, VIC', carrier: 'Border Express', occurredAt: hoursAgo(1) },
   ];
   for (const ev of replay) ingestEvent(ev);
 
@@ -408,6 +462,8 @@ export function seed() {
     implementations: db.collection('implementations').length,
     creditClaims: db.collection('creditClaims').length,
     chatSessions: db.collection('chatSessions').length,
+    campaigns: db.collection('campaigns').length,
+    surveys: db.collection('surveys').length,
   };
 }
 

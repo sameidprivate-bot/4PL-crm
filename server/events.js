@@ -77,7 +77,7 @@ export function ingestEvent(payload) {
   // Locate (or lazily create) the shipment this event belongs to.
   let shipment = db.find('shipments', (s) => s.reference === shipmentRef);
   const account = shipment ? db.getById('accounts', shipment.accountId) : null;
-  const resolvedBrand = brand || shipment?.brand || 'EFM';
+  const resolvedBrand = brand || shipment?.brand || '4PL';
 
   const event = {
     id: db.nextId('EVT'),

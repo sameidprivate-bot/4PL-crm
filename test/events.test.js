@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { db } from '../server/db.js';
 import { ingestEvent } from '../server/events.js';
-import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals, implementationChecklist } from '../server/domain.js';
+import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals, implementationChecklist, surveySummary, npsCategory, SERVICE_LINES } from '../server/domain.js';
 
 // Build an isolated in-memory dataset for each test run.
 function bootstrap() {
@@ -146,6 +146,35 @@ test('implementation checklists differ by type and are actionable', () => {
   assert.ok(nc.every((c) => c.id && c.task && c.done === false));
   assert.ok(cc.some((c) => /carrier/i.test(c.task)));
   assert.notDeepEqual(nc.map((c) => c.task), cc.map((c) => c.task));
+});
+
+test('system segments by service line, not EFM/AFS', () => {
+  assert.deepEqual(SERVICE_LINES, ['4PL', '3PL', 'Global']);
+});
+
+test('npsCategory bands 0-10 into promoter/passive/detractor', () => {
+  assert.equal(npsCategory(10), 'promoter');
+  assert.equal(npsCategory(9), 'promoter');
+  assert.equal(npsCategory(8), 'passive');
+  assert.equal(npsCategory(7), 'passive');
+  assert.equal(npsCategory(6), 'detractor');
+  assert.equal(npsCategory(0), 'detractor');
+});
+
+test('surveySummary computes NPS score and CSAT average', () => {
+  const s = surveySummary([
+    { type: 'nps', score: 10 }, { type: 'nps', score: 9 }, // 2 promoters
+    { type: 'nps', score: 8 },                              // 1 passive
+    { type: 'nps', score: 3 },                              // 1 detractor
+    { type: 'csat', score: 5 }, { type: 'csat', score: 4 }, { type: 'csat', score: 2 },
+  ]);
+  // NPS: promoters 50% - detractors 25% = 25
+  assert.equal(s.nps.score, 25);
+  assert.equal(s.nps.promoters, 2);
+  assert.equal(s.nps.detractors, 1);
+  // CSAT avg (5+4+2)/3 = 3.67 -> 3.7; satisfied = 2/3 = 67%
+  assert.equal(s.csat.avg, 3.7);
+  assert.equal(s.csat.satisfiedPct, 67);
 });
 
 test('empty Blue Sheet has the full Strategic Selling shape', () => {

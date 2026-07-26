@@ -81,6 +81,14 @@ export const api = {
   createCreditClaim: (b) => req('POST', '/credit-claims', b),
   updateCreditClaim: (id, b) => req('PATCH', `/credit-claims/${id}`, b),
 
+  marketingOverview: (q) => req('GET', '/marketing/overview' + qs(q)),
+  campaigns: (q) => req('GET', '/campaigns' + qs(q)),
+  createCampaign: (b) => req('POST', '/campaigns', b),
+  updateCampaign: (id, b) => req('PATCH', `/campaigns/${id}`, b),
+  experienceReport: (q) => req('GET', '/reports/experience' + qs(q)),
+  surveys: (q) => req('GET', '/surveys' + qs(q)),
+  createSurvey: (b) => req('POST', '/surveys', b),
+
   chatSessions: () => req('GET', '/chat/sessions'),
   chatSession: (id) => req('GET', `/chat/sessions/${id}`),
   createChat: (b) => req('POST', '/chat/sessions', b),

@@ -62,6 +62,18 @@ export function brandChip(brand) {
   return `<span class="brand-chip brand-${brand}">${brand}</span>`;
 }
 
+// NPS/CSAT badge helpers.
+export function npsBadge(score) {
+  if (score == null) return '<span class="badge b-slate">No NPS</span>';
+  const cls = score >= 50 ? 'b-green' : score >= 0 ? 'b-amber' : 'b-red';
+  return `<span class="badge ${cls}">NPS ${score}</span>`;
+}
+export function csatBadge(avg) {
+  if (avg == null) return '<span class="badge b-slate">No CSAT</span>';
+  const cls = avg >= 4 ? 'b-green' : avg >= 3 ? 'b-amber' : 'b-red';
+  return `<span class="badge ${cls}">CSAT ${avg}/5</span>`;
+}
+
 const PRIORITY_CLS = { urgent: 'b-red', high: 'b-amber', medium: 'b-blue', low: 'b-slate' };
 export function priorityBadge(p) {
   return `<span class="badge ${PRIORITY_CLS[p] || 'b-slate'}"><span class="dot"></span>${titleCase(p)}</span>`;

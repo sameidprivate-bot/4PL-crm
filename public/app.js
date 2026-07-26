@@ -5,6 +5,7 @@ import {
   priorityBadge, statusBadge, slaBadge, healthBadge, shipmentStatusBadge,
   eventIcon, titleCase, toast, escAttr, escHtml, docTypeBadge, docMeta, actionStatusBadge,
   carrierStatusBadge, responsibilityBadge, quoteStatusBadge, opStatusBadge, severityBadge,
+  npsBadge, csatBadge,
 } from './ui.js';
 
 const state = {
@@ -58,6 +59,7 @@ const routes = {
   cases: renderCases,
   sales: renderSales,
   pipeline: renderSales, // alias
+  marketing: renderMarketing,
   carriers: renderCarriers,
   accounts: renderAccounts,
   ops: renderAccountOps,
@@ -68,6 +70,7 @@ const TITLES = {
   dashboard: 'Dashboard',
   cases: 'Case Management',
   sales: 'Sales',
+  marketing: 'Marketing & CX',
   carriers: 'Carriers',
   accounts: 'Account Management',
   ops: 'Account Operations',
@@ -147,6 +150,9 @@ async function renderDashboard(host) {
     { label: 'Won (closed)', value: fmtMoney(k.wonValue), sub: 'this dataset', cls: 'kpi--good' },
     { label: 'Accounts', value: k.accounts, sub: `${k.atRiskAccounts} at-risk`, cls: k.atRiskAccounts ? 'kpi--alert' : '' },
     { label: 'With carrier', value: k.casesWithCarrier ?? 0, sub: 'cases to resolve', cls: k.casesWithCarrier ? 'kpi--alert' : '' },
+    { label: 'NPS', value: k.nps == null ? '—' : k.nps, sub: 'net promoter score', cls: k.nps != null && k.nps < 0 ? 'kpi--alert' : k.nps >= 50 ? 'kpi--good' : '' },
+    { label: 'CSAT', value: k.csat == null ? '—' : `${k.csat}/5`, sub: 'avg satisfaction', cls: k.csat != null && k.csat < 3 ? 'kpi--alert' : '' },
+    { label: 'Active campaigns', value: k.activeCampaigns ?? 0, sub: 'marketing' },
     { label: 'Revenue at risk', value: fmtMoney(k.revenueAtRisk ?? 0), sub: `${k.openRisks ?? 0} open risks`, cls: k.openRisks ? 'kpi--alert' : '' },
     { label: 'Credit claims', value: k.openClaims ?? 0, sub: `${fmtMoney(k.openClaimsValue ?? 0)} open`, cls: k.openClaims ? 'kpi--alert' : '' },
     { label: 'Implementations', value: k.activeImplementations ?? 0, sub: 'in progress' },
@@ -376,7 +382,10 @@ async function openCaseDrawer(id) {
       <div class="drawer__section">
         <h4>Add note</h4>
         <textarea id="noteInput" rows="2" placeholder="Log a customer interaction or internal note…"></textarea>
-        <button class="btn btn--sm" id="addNote" style="margin-top:8px">Add note</button>
+        <div class="chips" style="margin-top:8px">
+          <button class="btn btn--sm" id="addNote">Add note</button>
+          <button class="btn btn--sm" id="logCsat">😊 Log CSAT</button>
+        </div>
       </div>
 
       <div class="drawer__section">
@@ -400,6 +409,7 @@ async function openCaseDrawer(id) {
     toast('Note added', '', 'success');
     openCaseDrawer(id);
   };
+  drawer.querySelector('#logCsat').onclick = () => openSurveyModal(c.accountId, { type: 'csat', caseId: id });
   const accLink = drawer.querySelector('[data-acc]');
   if (accLink) accLink.onclick = (e) => { e.preventDefault(); closeDrawer(); openAccountDrawer(accLink.dataset.acc); };
   const shpLink = drawer.querySelector('[data-shp]');
@@ -1102,6 +1112,9 @@ async function openAccountDrawer(id) {
     <div class="inline-item clickable" data-imp="${r.id}"><div><div class="cell-strong">${escHtml(r.title)}</div><div class="cell-sub">${titleCase(r.type)}${r.goLiveDate ? ' · go-live ' + fmtDate(r.goLiveDate) : ''} · ${r.progress}%</div></div>${opStatusBadge(r.status)}</div>`, 'No implementations.');
   const clmHtml = listOr(a.creditClaims, (r) => `
     <div class="inline-item clickable" data-clm="${r.id}"><div><div class="cell-strong">${r.reference} · ${fmtMoney(r.amount)}</div><div class="cell-sub">${titleCase(r.reason)} · ${r.against === 'carrier' ? 'vs ' + escHtml(r.carrierName || 'carrier') : 'internal'}</div></div>${opStatusBadge(r.status)}</div>`, 'No credit claims.');
+  const xp = a.experience || { nps: {}, csat: {} };
+  const svyHtml = listOr((a.surveys || []).slice(0, 5), (r) => `
+    <div class="inline-item"><div><div class="cell-strong">${r.type.toUpperCase()} ${r.score}${r.type === 'csat' ? '/5' : ''}</div><div class="cell-sub">${escHtml(r.comment || r.respondent || '')}</div></div><span class="cell-sub">${timeAgo(r.respondedAt)}</span></div>`, 'No survey responses.');
 
   openDrawer(`
     <div class="drawer__head">
@@ -1151,6 +1164,11 @@ async function openAccountDrawer(id) {
         <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">💳 Credit claims</h4><button class="btn btn--sm" id="addClm">+ Add</button></div>
         <div class="inline-list">${clmHtml}</div>
       </div>
+      <div class="drawer__section">
+        <div class="section-head" style="margin:0 0 10px"><h4 style="margin:0">😊 Experience (NPS / CSAT)</h4><button class="btn btn--sm" id="addSvy">+ Capture</button></div>
+        <div class="chips" style="margin-bottom:10px">${npsBadge(xp.nps.score)} ${csatBadge(xp.csat.avg)}</div>
+        <div class="inline-list">${svyHtml}</div>
+      </div>
       <div class="drawer__section"><h4>Contacts</h4><div class="inline-list">${contacts}</div></div>
       <div class="drawer__section"><h4>Open cases</h4><div class="inline-list">${cases}</div></div>
       <div class="drawer__section"><h4>Deals</h4><div class="inline-list">${deals}</div></div>
@@ -1184,6 +1202,7 @@ async function openAccountDrawer(id) {
   drawer.querySelector('#addReq').onclick = () => openRequestModal(id);
   drawer.querySelector('#addImp').onclick = () => openImplementationModal(id);
   drawer.querySelector('#addClm').onclick = () => openClaimModal(id);
+  drawer.querySelector('#addSvy').onclick = () => openSurveyModal(id);
   // Account-ops item clicks open the respective register drawer.
   const byId = (arr) => Object.fromEntries((arr || []).map((r) => [r.id, r]));
   const prvMap = byId(a.priceReviews), riskMap = byId(a.risks), reqMap = byId(a.requests), impMap = byId(a.implementations), clmMap = byId(a.creditClaims);
@@ -1408,6 +1427,217 @@ async function openShipmentDrawer(id) {
     </div>`);
   drawer.querySelector('[data-close]').onclick = closeDrawer;
   drawer.querySelectorAll('[data-case]').forEach((n) => n.onclick = () => { closeDrawer(); openCaseDrawer(n.dataset.case); });
+}
+
+// ============================================================================
+// MARKETING & CX (tabbed: Campaigns · NPS & CSAT)
+// ============================================================================
+async function renderMarketing(host) {
+  const tab = state.tab || '';
+  host.innerHTML = tabBar('marketing', [
+    { key: '', label: 'Campaigns' },
+    { key: 'experience', label: 'NPS & CSAT' },
+  ], tab) + `<div id="mktContent"></div>`;
+  const c = host.querySelector('#mktContent');
+  if (tab === 'experience') return renderExperience(c);
+  return renderCampaigns(c);
+}
+
+async function renderCampaigns(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newCmp">+ New campaign</button>`;
+  document.getElementById('newCmp').onclick = () => openCampaignModal();
+  const o = await api.marketingOverview(bq());
+  const k = o.kpis;
+  const kpiCards = [
+    { label: 'Active campaigns', value: k.activeCampaigns, sub: `${k.campaigns} total` },
+    { label: 'Leads', value: k.leads, sub: `${k.mql} MQL · ${k.sql} SQL` },
+    { label: 'Pipeline influenced', value: fmtMoney(k.pipelineInfluenced), sub: `${k.opportunities} opportunities` },
+    { label: 'Marketing spend', value: fmtMoney(k.spend), sub: k.cpl != null ? `${fmtMoney(k.cpl)} / lead` : '' },
+    { label: 'ROI', value: k.roi == null ? '—' : `${k.roi}%`, sub: 'pipeline vs spend', cls: k.roi != null && k.roi > 0 ? 'kpi--good' : '' },
+  ];
+  const rows = o.campaigns;
+  host.innerHTML = `
+    <div class="grid kpis" style="margin-bottom:18px">${kpiCards.map(kpiCard).join('')}</div>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Campaign</th><th>Service</th><th>Type</th><th>Status</th><th>Leads</th><th>MQL</th><th>Spend</th><th>Pipeline</th><th>ROI</th></tr></thead>
+      <tbody>${rows.length ? rows.map((c) => `
+        <tr class="clickable" data-cmp="${c.id}">
+          <td class="cell-strong">${escHtml(c.name)}</td>
+          <td>${brandChip(c.brand)}</td>
+          <td>${badge(titleCase(c.type), 'b-violet')}</td>
+          <td>${opStatusBadge(c.status)}</td>
+          <td>${c.leads}</td>
+          <td class="cell-sub">${c.mql}</td>
+          <td class="cell-sub">${fmtMoney(c.cost)}</td>
+          <td class="cell-strong">${fmtMoney(c.revenue)}</td>
+          <td style="color:${c.roi > 0 ? 'var(--green)' : 'var(--text-muted)'};font-weight:700">${c.roi == null ? '—' : c.roi + '%'}</td>
+        </tr>`).join('') : `<tr><td colspan="9"><div class="empty">No campaigns.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(rows.map((c) => [c.id, c]));
+  host.querySelectorAll('[data-cmp]').forEach((tr) => tr.onclick = () => openCampaignDrawer(map[tr.dataset.cmp]));
+}
+
+function openCampaignModal() {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">New campaign</div>
+    <div class="modal__body">
+      <label class="field"><span>Campaign name *</span><input id="cm-name" placeholder="e.g. 4PL Control Tower — ANZ demand-gen" /></label>
+      <div class="form-row">
+        <label class="field"><span>Type</span><select id="cm-type">${s.en(m.campaignTypes, 'email')}</select></label>
+        <label class="field"><span>Service line</span><select id="cm-brand">${s.en(m.serviceLines, '4PL')}</select></label>
+        <label class="field"><span>Status</span><select id="cm-status">${s.en(m.campaignStatuses, 'planned')}</select></label>
+        <label class="field"><span>Owner</span><select id="cm-owner">${s.agent()}</select></label>
+        <label class="field"><span>Start date</span><input id="cm-start" type="date" /></label>
+        <label class="field"><span>End date</span><input id="cm-end" type="date" /></label>
+        <label class="field"><span>Budget (AUD)</span><input id="cm-budget" type="number" /></label>
+        <label class="field"><span>Cost to date (AUD)</span><input id="cm-cost" type="number" /></label>
+      </div>
+      <label class="field"><span>Audience</span><input id="cm-aud" placeholder="Target segment" /></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createCmp">Create</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createCmp').onclick = async () => {
+    if (!val('cm-name')) return toast('Name required', '', 'warn');
+    await api.createCampaign({ name: val('cm-name'), type: val('cm-type'), brand: val('cm-brand'), status: val('cm-status'), ownerId: val('cm-owner') || null, startDate: val('cm-start') || null, endDate: val('cm-end') || null, budget: val('cm-budget') || 0, cost: val('cm-cost') || 0, audience: val('cm-aud') });
+    closeModal(); toast('Campaign created', '', 'success'); router();
+  };
+}
+
+function openCampaignDrawer(c) {
+  if (!c) return; const s = opSelects(); const m = state.meta;
+  const stat = (label, v) => `<div class="card kpi" style="padding:12px"><div class="kpi__label">${label}</div><div class="kpi__value" style="font-size:20px">${v}</div></div>`;
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${c.id} · ${brandChip(c.brand)} · ${titleCase(c.type)}</div>
+      <div class="drawer__title">${escHtml(c.name)}</div>
+      <div class="chips" style="margin-top:10px">${opStatusBadge(c.status)} ${c.roi != null ? badge('ROI ' + c.roi + '%', c.roi > 0 ? 'b-green' : 'b-slate') : ''}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+        ${stat('Leads', c.leads)}${stat('MQL', c.mql)}${stat('SQL', c.sql)}
+      </div>
+      <div class="drawer__section"><dl class="dl">
+        <dt>Audience</dt><dd>${escHtml(c.audience || '—')}</dd>
+        <dt>Channel</dt><dd>${escHtml(c.channel || '—')}</dd>
+        <dt>Owner</dt><dd>${c.ownerName || '—'}</dd>
+        <dt>Runs</dt><dd>${c.startDate ? fmtDate(c.startDate) : '—'} → ${c.endDate ? fmtDate(c.endDate) : '—'}</dd>
+        <dt>Budget / spend</dt><dd>${fmtMoney(c.budget)} / <b>${fmtMoney(c.cost)}</b></dd>
+        <dt>Opportunities</dt><dd>${c.opportunities}</dd>
+        <dt>Pipeline influenced</dt><dd class="cell-strong">${fmtMoney(c.revenue)}</dd>
+        <dt>Cost / lead</dt><dd>${c.cpl == null ? '—' : fmtMoney(c.cpl)}</dd>
+      </dl>${c.notes ? `<p class="cell-sub" style="margin-top:10px">${escHtml(c.notes)}</p>` : ''}</div>
+      <div class="drawer__section"><h4>Update</h4>
+        <div class="form-row">
+          <label class="field"><span>Status</span><select id="e-status">${s.en(m.campaignStatuses, c.status)}</select></label>
+          <label class="field"><span>Leads</span><input id="e-leads" type="number" value="${c.leads}" /></label>
+          <label class="field"><span>Cost</span><input id="e-cost" type="number" value="${c.cost}" /></label>
+          <label class="field"><span>Pipeline (AUD)</span><input id="e-rev" type="number" value="${c.revenue}" /></label>
+        </div>
+        <button class="btn btn--primary btn--sm" id="saveCmp">Save</button>
+      </div>
+    </div>`);
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  drawer.querySelector('#saveCmp').onclick = async () => {
+    await api.updateCampaign(c.id, { status: val('e-status'), leads: Number(val('e-leads')), cost: Number(val('e-cost')), revenue: Number(val('e-rev')) });
+    toast('Campaign updated', c.id, 'success'); closeDrawer(); router();
+  };
+}
+
+// ---- NPS & CSAT ----
+async function renderExperience(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="capSvy">+ Capture response</button>`;
+  document.getElementById('capSvy').onclick = () => openSurveyModal();
+  const [rep, responses] = await Promise.all([api.experienceReport(bq()), api.surveys(bq())]);
+  const nps = rep.nps, csat = rep.csat;
+  const total = Math.max(1, nps.promoters + nps.passives + nps.detractors);
+  const pct = (n) => (n / total) * 100;
+  const npsColor = nps.score == null ? 'var(--text-muted)' : nps.score >= 50 ? 'var(--green)' : nps.score >= 0 ? 'var(--amber)' : 'var(--red)';
+
+  const slRows = rep.byServiceLine.map((s) => `
+    <div class="meter__row">
+      <span class="meter__label">${s.serviceLine}</span>
+      <span class="meter__track"><span class="meter__fill" style="width:${s.nps.score == null ? 0 : Math.max(0, (s.nps.score + 100) / 2)}%;background:var(--primary)"></span></span>
+      <span class="meter__num" style="width:auto">NPS ${s.nps.score ?? '—'} · CSAT ${s.csat.avg ?? '—'}</span>
+    </div>`).join('');
+
+  const verbatims = rep.recent.map((r) => `
+    <div class="inline-item">
+      <div style="flex:1"><div class="cell-strong">"${escHtml(r.comment)}"</div><div class="cell-sub">${escHtml(r.respondent || r.accountName || 'Anon')} · ${escHtml(r.accountName || '')} ${brandChip(r.brand)}</div></div>
+      ${r.type === 'nps' ? `<span class="badge ${r.category === 'promoter' ? 'b-green' : r.category === 'passive' ? 'b-amber' : 'b-red'}">NPS ${r.score}</span>` : `<span class="badge ${r.score >= 4 ? 'b-green' : r.score >= 3 ? 'b-amber' : 'b-red'}">CSAT ${r.score}</span>`}
+    </div>`).join('') || '<div class="cell-sub">No comments yet.</div>';
+
+  host.innerHTML = `
+    <div class="two-col">
+      <div>
+        <div class="card card--pad">
+          <div class="section-head" style="margin-top:0"><h2>Net Promoter Score</h2><span class="muted">${nps.responses} responses</span></div>
+          <div class="gauge"><span class="gauge__num" style="color:${npsColor}">${nps.score ?? '—'}</span><span class="cell-sub">promoters − detractors</span></div>
+          <div class="nps-bar">
+            <span style="width:${pct(nps.detractors)}%;background:var(--red)"></span>
+            <span style="width:${pct(nps.passives)}%;background:var(--amber)"></span>
+            <span style="width:${pct(nps.promoters)}%;background:var(--green)"></span>
+          </div>
+          <div class="nps-legend"><span><b>${nps.promoters}</b> promoters</span><span><b>${nps.passives}</b> passives</span><span><b>${nps.detractors}</b> detractors</span></div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>Customer Satisfaction (CSAT)</h2><span class="muted">${csat.responses} responses</span></div>
+          <div class="gauge"><span class="gauge__num" style="color:${csat.avg == null ? 'var(--text-muted)' : csat.avg >= 4 ? 'var(--green)' : csat.avg >= 3 ? 'var(--amber)' : 'var(--red)'}">${csat.avg ?? '—'}</span><span class="cell-sub">/ 5 · ${csat.satisfiedPct ?? '—'}% satisfied</span></div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>By service line</h2></div>
+          <div class="meter">${slRows}</div>
+        </div>
+      </div>
+      <div>
+        <div class="card card--pad">
+          <div class="section-head" style="margin-top:0"><h2>Recent verbatims</h2></div>
+          <div class="inline-list">${verbatims}</div>
+        </div>
+        <div class="card card--pad" style="margin-top:16px">
+          <div class="section-head" style="margin-top:0"><h2>All responses</h2><span class="muted">${responses.length}</span></div>
+          <div class="table-wrap"><table class="data mini">
+            <thead><tr><th>Type</th><th>Score</th><th>Account</th><th>Service</th><th>Channel</th><th>When</th></tr></thead>
+            <tbody>${responses.slice(0, 20).map((r) => `<tr><td>${r.type.toUpperCase()}</td><td class="cell-strong">${r.score}${r.type === 'csat' ? '/5' : ''}</td><td>${escHtml(r.accountName || '—')}</td><td>${brandChip(r.brand)}</td><td class="cell-sub">${titleCase(r.channel)}</td><td class="cell-sub">${timeAgo(r.respondedAt)}</td></tr>`).join('')}</tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function openSurveyModal(accountId, opts = {}) {
+  const s = opSelects(); const m = state.meta;
+  openModal(`
+    <div class="modal__head">Capture ${opts.type ? opts.type.toUpperCase() : 'NPS / CSAT'} response</div>
+    <div class="modal__body">
+      <div class="form-row">
+        <label class="field"><span>Type</span><select id="sv-type">${s.en(m.surveyTypes, opts.type || 'nps')}</select></label>
+        <label class="field"><span>Score</span><input id="sv-score" type="number" min="0" max="10" placeholder="NPS 0–10 / CSAT 1–5" /></label>
+        <label class="field"><span>Account</span><select id="sv-account">${s.acc(accountId)}</select></label>
+        <label class="field"><span>Channel</span><select id="sv-channel">${s.en(m.surveyChannels, opts.caseId ? 'post-case' : 'email')}</select></label>
+        <label class="field"><span>Respondent</span><input id="sv-resp" placeholder="Contact name" /></label>
+      </div>
+      <label class="field"><span>Comment</span><textarea id="sv-comment" rows="2"></textarea></label>
+      <p class="cell-sub" id="sv-hint">NPS: 9–10 promoter · 7–8 passive · 0–6 detractor.</p>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createSvy">Save response</button></div>`);
+  const typeSel = modalHost.querySelector('#sv-type');
+  const scoreIn = modalHost.querySelector('#sv-score');
+  const hint = modalHost.querySelector('#sv-hint');
+  const sync = () => {
+    const nps = typeSel.value === 'nps';
+    scoreIn.max = nps ? 10 : 5; scoreIn.placeholder = nps ? 'NPS 0–10' : 'CSAT 1–5';
+    hint.textContent = nps ? 'NPS: 9–10 promoter · 7–8 passive · 0–6 detractor.' : 'CSAT: 1 (very dissatisfied) – 5 (very satisfied).';
+  };
+  typeSel.onchange = sync; sync();
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createSvy').onclick = async () => {
+    if (val('sv-score') === '') return toast('Score required', '', 'warn');
+    try {
+      await api.createSurvey({ type: val('sv-type'), score: Number(val('sv-score')), accountId: val('sv-account') || accountId || null, channel: val('sv-channel'), respondent: val('sv-resp'), comment: val('sv-comment'), caseId: opts.caseId || null });
+    } catch (e) { return toast('Invalid', e.message, 'error'); }
+    closeModal(); toast('Response captured', '', 'success'); afterOpChange();
+  };
 }
 
 // ============================================================================

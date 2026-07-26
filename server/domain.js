@@ -1,6 +1,11 @@
 // Shared domain vocabulary for MOVEiTcrm (EFM & AFS 4PL).
 
-export const BRANDS = ['EFM', 'AFS'];
+// The system is segmented by MAJOR SERVICE LINE (not by the EFM/AFS brands).
+export const SERVICE_LINES = ['4PL', '3PL', 'Global'];
+// `brand` is the field name carried on every record; it now holds the service
+// line. BRANDS stays exported as the canonical value list so existing
+// brand-filtered endpoints keep working against the new values.
+export const BRANDS = SERVICE_LINES;
 
 // Sales pipeline stages, in order. Probabilities drive weighted forecast.
 export const DEAL_STAGES = [
@@ -239,6 +244,50 @@ export function implementationChecklist(type) {
     offboarding: ['Confirm end date', 'Final invoicing', 'Return of assets/data', 'Close account'],
   };
   return (base[type] || ['Scope', 'Execute', 'Verify']).map((task, i) => ({ id: `CL-${i + 1}`, task, done: false }));
+}
+
+// --- Marketing ---------------------------------------------------------------
+export const CAMPAIGN_TYPES = ['email', 'event', 'webinar', 'content', 'social', 'paid-ads', 'account-based', 'partner'];
+export const CAMPAIGN_STATUSES = ['planned', 'active', 'paused', 'completed'];
+
+export function campaignMetrics(c) {
+  const cost = Number(c.cost) || 0;
+  const revenue = Number(c.revenue) || 0;
+  const leads = Number(c.leads) || 0;
+  const roi = cost > 0 ? Math.round(((revenue - cost) / cost) * 100) : null;
+  const cpl = leads > 0 ? Math.round(cost / leads) : null;
+  return { roi, cpl };
+}
+
+// --- NPS & CSAT --------------------------------------------------------------
+export const SURVEY_TYPES = ['nps', 'csat'];
+export const SURVEY_CHANNELS = ['email', 'post-case', 'qbr', 'portal', 'phone'];
+
+// NPS: 9–10 promoter, 7–8 passive, 0–6 detractor.
+export function npsCategory(score) {
+  if (score >= 9) return 'promoter';
+  if (score >= 7) return 'passive';
+  return 'detractor';
+}
+// CSAT is 1–5; 4–5 counts as satisfied.
+export function csatSatisfied(score) {
+  return score >= 4;
+}
+
+// Summarise a set of survey responses into NPS + CSAT metrics.
+export function surveySummary(responses = []) {
+  const nps = responses.filter((r) => r.type === 'nps');
+  const csat = responses.filter((r) => r.type === 'csat');
+  const promoters = nps.filter((r) => npsCategory(r.score) === 'promoter').length;
+  const passives = nps.filter((r) => npsCategory(r.score) === 'passive').length;
+  const detractors = nps.filter((r) => npsCategory(r.score) === 'detractor').length;
+  const npsScore = nps.length ? Math.round(((promoters - detractors) / nps.length) * 100) : null;
+  const csatAvg = csat.length ? Math.round((csat.reduce((s, r) => s + r.score, 0) / csat.length) * 10) / 10 : null;
+  const csatSatisfiedPct = csat.length ? Math.round((csat.filter((r) => csatSatisfied(r.score)).length / csat.length) * 100) : null;
+  return {
+    nps: { responses: nps.length, promoters, passives, detractors, score: npsScore },
+    csat: { responses: csat.length, avg: csatAvg, satisfiedPct: csatSatisfiedPct },
+  };
 }
 
 // Sum a quote's lines into totals + margin.

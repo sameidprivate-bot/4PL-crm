@@ -22,12 +22,12 @@ const INTERVAL = Number(argVal('interval', 1200));
 // A pool of known shipment references from the seed set, plus a couple of new
 // ones so the simulator also exercises the "unknown consignment" path.
 const REFS = [
-  { ref: 'EFM-CON-88213', brand: 'EFM' },
-  { ref: 'EFM-CON-88245', brand: 'EFM' },
-  { ref: 'EFM-CON-88301', brand: 'EFM' },
-  { ref: 'AFS-CON-40118', brand: 'AFS' },
-  { ref: 'AFS-CON-40155', brand: 'AFS' },
-  { ref: 'AFS-CON-40201', brand: 'AFS' },
+  { ref: 'EFM-CON-88213', brand: '4PL' },
+  { ref: 'EFM-CON-88245', brand: '4PL' },
+  { ref: 'EFM-CON-88301', brand: '3PL' },
+  { ref: 'AFS-CON-40118', brand: '3PL' },
+  { ref: 'AFS-CON-40155', brand: '3PL' },
+  { ref: 'AFS-CON-40201', brand: 'Global' },
 ];
 
 const LOCATIONS = ['Sydney, NSW', 'Melbourne, VIC', 'Brisbane, QLD', 'Chicago, IL', 'Dallas, TX', 'Denver, CO', 'Austin, TX'];

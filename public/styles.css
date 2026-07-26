@@ -235,6 +235,17 @@ table.data tbody tr.clickable:hover { background: var(--surface-2); cursor: poin
 .brand-chip { font-size: 11px; font-weight: 750; padding: 2px 7px; border-radius: 6px; }
 .brand-EFM { background: color-mix(in srgb, var(--efm) 15%, transparent); color: var(--efm); }
 .brand-AFS { background: color-mix(in srgb, var(--afs) 16%, transparent); color: var(--afs); }
+/* Service-line chips (4PL / 3PL / Global) */
+.brand-4PL { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+.brand-3PL { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+.brand-Global { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
+/* NPS gauge */
+.gauge { display: flex; align-items: baseline; gap: 8px; }
+.gauge__num { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+.nps-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin: 10px 0 4px; }
+.nps-bar > span { display: block; }
+.nps-legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--text-muted); }
+.nps-legend b { color: var(--text); }
 
 /* ---- Pipeline board ---- */
 .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: 14px; overflow-x: auto; padding-bottom: 8px; align-items: start; }

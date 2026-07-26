@@ -52,6 +52,14 @@ import {
   CLAIM_STATUSES,
   CLAIM_AGAINST,
   CHAT_STATUSES,
+  SERVICE_LINES,
+  CAMPAIGN_TYPES,
+  CAMPAIGN_STATUSES,
+  SURVEY_TYPES,
+  SURVEY_CHANNELS,
+  campaignMetrics,
+  npsCategory,
+  surveySummary,
   implementationChecklist,
   responsibilityForCategory,
   quoteTotals,
@@ -87,6 +95,8 @@ db.syncCounters({
   creditClaims: { prefix: 'CLM', start: 1 },
   chatSessions: { prefix: 'CHAT', start: 1 },
   chatMessages: { prefix: 'MSG', start: 1 },
+  campaigns: { prefix: 'CMP', start: 1 },
+  surveys: { prefix: 'SVY', start: 1 },
 });
 if (db.collection('accounts').length === 0) {
   console.log('[boot] empty database — seeding demo data');
@@ -154,6 +164,11 @@ api.get('/meta', (_req, res) => {
     claimStatuses: CLAIM_STATUSES,
     claimAgainst: CLAIM_AGAINST,
     chatStatuses: CHAT_STATUSES,
+    serviceLines: SERVICE_LINES,
+    campaignTypes: CAMPAIGN_TYPES,
+    campaignStatuses: CAMPAIGN_STATUSES,
+    surveyTypes: SURVEY_TYPES,
+    surveyChannels: SURVEY_CHANNELS,
     agents: db.collection('agents'),
     carriers: db.collection('carriers').map((c) => ({ id: c.id, name: c.name, code: c.code })),
     accountsLite: db.collection('accounts').map((a) => ({ id: a.id, name: a.name, brand: a.brand })),
@@ -212,6 +227,8 @@ api.get('/dashboard', (req, res) => {
     (p) => accountIds.has(p.accountId) && !['applied', 'declined'].includes(p.status) && p.effectiveDate &&
       new Date(p.effectiveDate).getTime() < in60,
   );
+  const experience = surveySummary(db.collection('surveys').filter((s) => !brand || s.brand === brand));
+  const activeCampaigns = db.collection('campaigns').filter((c) => (!brand || c.brand === brand) && c.status === 'active');
 
   // Case distribution by priority and by category.
   const byPriority = {};
@@ -251,6 +268,9 @@ api.get('/dashboard', (req, res) => {
       activeImplementations: activeImplementations.length,
       openRequests: openRequests.length,
       priceReviewsDue: priceReviewsDue.length,
+      nps: experience.nps.score,
+      csat: experience.csat.avg,
+      activeCampaigns: activeCampaigns.length,
     },
     byPriority,
     byCategory,
@@ -313,6 +333,8 @@ api.get('/accounts/:id', (req, res) => {
       progress: r.checklist?.length ? Math.round((r.checklist.filter((c) => c.done).length / r.checklist.length) * 100) : 0,
     })),
     creditClaims: db.filter('creditClaims', (x) => x.accountId === account.id).map(opEnrich),
+    surveys: db.filter('surveys', (x) => x.accountId === account.id).sort((a, b) => new Date(b.respondedAt) - new Date(a.respondedAt)).map(surveyView),
+    experience: surveySummary(db.filter('surveys', (x) => x.accountId === account.id)),
   });
 });
 
@@ -332,7 +354,7 @@ api.post('/accounts', asyncH((req, res) => {
   const account = {
     id: db.nextId('ACC'),
     name: b.name,
-    brand: b.brand || 'EFM',
+    brand: b.brand || '4PL',
     industry: b.industry || 'Other',
     tier: b.tier || 'mid-market',
     health: b.health || 'healthy',
@@ -484,7 +506,7 @@ function opList(collection, req) {
 }
 
 function brandOf(accountId, fallback) {
-  return (accountId ? db.getById('accounts', accountId)?.brand : null) || fallback || 'EFM';
+  return (accountId ? db.getById('accounts', accountId)?.brand : null) || fallback || '4PL';
 }
 
 // --- Annual price reviews ---------------------------------------------------
@@ -666,6 +688,176 @@ api.patch('/credit-claims/:id', asyncH((req, res) => {
 }));
 
 // ============================================================================
+// MARKETING — campaigns
+// ============================================================================
+function campaignView(c) {
+  return { ...c, ...campaignMetrics(c), ownerName: c.ownerId ? db.getById('agents', c.ownerId)?.name : null };
+}
+
+api.get('/campaigns', (req, res) => {
+  const { brand, status, type, q } = req.query;
+  let rows = [...db.collection('campaigns')];
+  if (brand) rows = rows.filter((r) => r.brand === brand);
+  if (status) rows = rows.filter((r) => r.status === status);
+  if (type) rows = rows.filter((r) => r.type === type);
+  if (q) { const s = q.toLowerCase(); rows = rows.filter((r) => (r.name || '').toLowerCase().includes(s)); }
+  rows.sort((a, b) => new Date(b.startDate || b.createdAt || 0) - new Date(a.startDate || a.createdAt || 0));
+  res.json(rows.map(campaignView));
+});
+
+api.post('/campaigns', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.name) throw new ValidationError('name is required');
+  const now = new Date().toISOString();
+  const c = {
+    id: db.nextId('CMP'),
+    name: b.name,
+    type: b.type || 'email',
+    brand: b.brand || '4PL',
+    status: b.status || 'planned',
+    audience: b.audience || '',
+    channel: b.channel || '',
+    startDate: b.startDate || null,
+    endDate: b.endDate || null,
+    budget: b.budget != null ? Number(b.budget) : 0,
+    cost: b.cost != null ? Number(b.cost) : 0,
+    leads: b.leads != null ? Number(b.leads) : 0,
+    mql: b.mql != null ? Number(b.mql) : 0,
+    sql: b.sql != null ? Number(b.sql) : 0,
+    opportunities: b.opportunities != null ? Number(b.opportunities) : 0,
+    revenue: b.revenue != null ? Number(b.revenue) : 0,
+    ownerId: b.ownerId || null,
+    notes: b.notes || '',
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('campaigns', c);
+  res.status(201).json(campaignView(c));
+}));
+
+api.patch('/campaigns/:id', asyncH((req, res) => {
+  const u = db.update('campaigns', req.params.id, req.body || {});
+  if (!u) return res.status(404).json({ error: 'Campaign not found' });
+  res.json(campaignView(u));
+}));
+
+api.get('/marketing/overview', (req, res) => {
+  const brand = req.query.brand;
+  const rows = db.collection('campaigns').filter((c) => !brand || c.brand === brand);
+  const num = (f) => rows.reduce((s, c) => s + (Number(c[f]) || 0), 0);
+  const active = rows.filter((c) => c.status === 'active');
+  const spend = num('cost');
+  const revenue = num('revenue');
+  const leads = num('leads');
+  const groupBy = (key) => {
+    const m = {};
+    for (const c of rows) {
+      const g = (m[c[key]] = m[c[key]] || { key: c[key], count: 0, leads: 0, revenue: 0, spend: 0 });
+      g.count += 1; g.leads += Number(c.leads) || 0; g.revenue += Number(c.revenue) || 0; g.spend += Number(c.cost) || 0;
+    }
+    return Object.values(m).sort((a, b) => b.leads - a.leads);
+  };
+  res.json({
+    kpis: {
+      campaigns: rows.length,
+      activeCampaigns: active.length,
+      leads,
+      mql: num('mql'),
+      sql: num('sql'),
+      opportunities: num('opportunities'),
+      spend: Math.round(spend),
+      pipelineInfluenced: Math.round(revenue),
+      roi: spend > 0 ? Math.round(((revenue - spend) / spend) * 100) : null,
+      cpl: leads > 0 ? Math.round(spend / leads) : null,
+    },
+    byType: groupBy('type'),
+    byServiceLine: groupBy('brand'),
+    campaigns: rows.map(campaignView).slice(0, 50),
+  });
+});
+
+// ============================================================================
+// NPS & CSAT — survey capture + reporting
+// ============================================================================
+function surveyView(s) {
+  return {
+    ...s,
+    accountName: s.accountId ? db.getById('accounts', s.accountId)?.name : (s.accountName || null),
+    category: s.type === 'nps' ? npsCategory(s.score) : (s.score >= 4 ? 'satisfied' : s.score >= 3 ? 'neutral' : 'dissatisfied'),
+  };
+}
+
+api.get('/surveys', (req, res) => {
+  const { brand, type, accountId, category } = req.query;
+  let rows = [...db.collection('surveys')];
+  if (brand) rows = rows.filter((r) => r.brand === brand);
+  if (type) rows = rows.filter((r) => r.type === type);
+  if (accountId) rows = rows.filter((r) => r.accountId === accountId);
+  rows.sort((a, b) => new Date(b.respondedAt || b.createdAt) - new Date(a.respondedAt || a.createdAt));
+  let out = rows.map(surveyView);
+  if (category) out = out.filter((r) => r.category === category);
+  res.json(out);
+});
+
+api.post('/surveys', asyncH((req, res) => {
+  const b = req.body || {};
+  const type = b.type || 'nps';
+  const score = Number(b.score);
+  if (Number.isNaN(score)) throw new ValidationError('score is required');
+  const max = type === 'nps' ? 10 : 5;
+  if (score < 0 || score > max) throw new ValidationError(`score must be 0–${max} for ${type}`);
+  const account = b.accountId ? db.getById('accounts', b.accountId) : null;
+  const now = new Date().toISOString();
+  const s = {
+    id: db.nextId('SVY'),
+    type,
+    score,
+    accountId: account?.id ?? null,
+    brand: b.brand || account?.brand || '4PL',
+    respondent: b.respondent || '',
+    caseId: b.caseId || null,
+    channel: b.channel || (b.caseId ? 'post-case' : 'email'),
+    comment: b.comment || '',
+    ownerId: b.ownerId || null,
+    respondedAt: b.respondedAt || now,
+    createdAt: now,
+  };
+  db.insert('surveys', s);
+  res.status(201).json(surveyView(s));
+}));
+
+api.get('/reports/experience', (req, res) => {
+  const brand = req.query.brand;
+  const rows = db.collection('surveys').filter((s) => !brand || s.brand === brand);
+  const summary = surveySummary(rows);
+
+  // Per service line.
+  const byServiceLine = SERVICE_LINES.map((sl) => ({ serviceLine: sl, ...surveySummary(rows.filter((r) => r.brand === sl)) }));
+
+  // Trend by month (last ~6 months present in data).
+  const months = {};
+  for (const r of rows) {
+    const key = new Date(r.respondedAt || r.createdAt).toISOString().slice(0, 7);
+    (months[key] = months[key] || []).push(r);
+  }
+  const trend = Object.entries(months)
+    .map(([month, rs]) => ({ month, ...surveySummary(rs) }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const recent = rows
+    .filter((r) => r.comment)
+    .sort((a, b) => new Date(b.respondedAt) - new Date(a.respondedAt))
+    .slice(0, 8)
+    .map(surveyView);
+  const detractors = rows
+    .filter((r) => r.type === 'nps' && npsCategory(r.score) === 'detractor')
+    .sort((a, b) => new Date(b.respondedAt) - new Date(a.respondedAt))
+    .slice(0, 6)
+    .map(surveyView);
+
+  res.json({ ...summary, byServiceLine, trend, recent, detractors, totalResponses: rows.length });
+});
+
+// ============================================================================
 // LIVE CHAT — inbound customer conversations for the CS desk
 // ============================================================================
 const CHAT_AUTO_REPLIES = [
@@ -762,7 +954,7 @@ api.post('/chat/sessions/:id/case', asyncH((req, res) => {
   const newCase = {
     id: db.nextId('CASE'),
     subject: `Live chat — ${s.subject}`,
-    brand: account?.brand || 'EFM',
+    brand: account?.brand || '4PL',
     accountId: account?.id ?? null, accountName: account?.name ?? null,
     contactId: null, shipmentId: null, shipmentRef: null,
     carrierId: null, carrierName: null, responsibility: 'internal',
@@ -855,7 +1047,7 @@ api.post('/cases', asyncH((req, res) => {
   const newCase = {
     id: db.nextId('CASE'),
     subject: b.subject,
-    brand: b.brand || account?.brand || 'EFM',
+    brand: b.brand || account?.brand || '4PL',
     accountId: account?.id ?? null,
     accountName: account?.name ?? null,
     contactId: b.contactId || null,
@@ -979,7 +1171,7 @@ api.post('/deals', asyncH((req, res) => {
     name: b.name,
     accountId: account?.id ?? null,
     prospectName: b.prospectName || null,
-    brand: b.brand || account?.brand || 'EFM',
+    brand: b.brand || account?.brand || '4PL',
     stage: b.stage || 'lead',
     value: Number(b.value) || 0,
     ownerId: b.ownerId || null,
@@ -1054,7 +1246,7 @@ api.post('/quotes', asyncH((req, res) => {
     title: b.title || `Quote for ${account?.name || 'prospect'}`,
     accountId: account?.id ?? null,
     dealId: b.dealId || null,
-    brand: b.brand || account?.brand || 'EFM',
+    brand: b.brand || account?.brand || '4PL',
     status: b.status || 'draft',
     ownerId: b.ownerId || null,
     validUntil: b.validUntil || null,
