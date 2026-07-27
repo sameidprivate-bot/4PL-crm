@@ -65,7 +65,23 @@ const routes = {
   ops: renderAccountOps,
   shipments: renderShipments,
   events: renderEvents,
+  admin: renderAdmin,
 };
+
+// Which permission gates each top-level view.
+const VIEW_PERM = {
+  dashboard: 'dashboard.view', cases: 'cases.view', sales: 'sales.view', pipeline: 'sales.view',
+  marketing: 'marketing.view', carriers: 'carriers.view', accounts: 'accounts.view',
+  ops: 'accountops.view', shipments: 'shipments.view', events: 'events.view', admin: 'admin.users',
+};
+
+// Effective-permission check for the acting user (honours "*" and "module.*").
+function can(perm) {
+  const s = state.perms;
+  if (!s) return true; // before load, don't block
+  if (s.has('*') || s.has(perm)) return true;
+  return s.has(perm.split('.')[0] + '.*');
+}
 const TITLES = {
   dashboard: 'Dashboard',
   cases: 'Case Management',
@@ -76,6 +92,7 @@ const TITLES = {
   ops: 'Account Operations',
   shipments: 'Shipments',
   events: 'efmAPP Status Feed',
+  admin: 'Administration',
 };
 
 async function router() {
@@ -88,9 +105,16 @@ async function router() {
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === state.view));
   document.getElementById('topbarActions').innerHTML = '';
   const host = document.getElementById('view');
+  const perm = VIEW_PERM[state.view];
+  if (perm && !can(perm)) {
+    host.innerHTML = `<div class="empty"><div class="empty__ico">🔒</div>You don't have permission to view <b>${TITLES[state.view]}</b>.<div class="cell-sub" style="margin-top:8px">Ask an administrator to grant <code class="perm-key">${perm}</code>.</div></div>`;
+    refreshBadges();
+    return;
+  }
   host.innerHTML = '<div class="loading">Loading…</div>';
   try {
     await routes[state.view](host);
+    gateManageButtons();
   } catch (err) {
     host.innerHTML = `<div class="empty"><div class="empty__ico">⚠️</div>${err.message}</div>`;
     console.error(err);
@@ -2329,6 +2353,327 @@ async function quickSimulate() {
 }
 
 // ============================================================================
+// ADMINISTRATION — users, security groups & permissions
+// ============================================================================
+async function renderAdmin(host) {
+  const tabs = [
+    { key: '', label: 'Users' },
+    { key: 'groups', label: 'Security Groups' },
+  ];
+  const tab = state.tab || '';
+  host.innerHTML = tabBar('admin', tabs, tab) + `<div id="adminContent"></div>`;
+  const c = host.querySelector('#adminContent');
+  if (tab === 'groups') return renderSecurityGroups(c);
+  return renderUsers(c);
+}
+
+// ---- Users ----
+async function renderUsers(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newUsr">+ New user</button>`;
+  document.getElementById('newUsr').onclick = () => openUserModal();
+  const users = await api.users();
+  host.innerHTML = `
+    <p class="cell-sub" style="margin:0 0 14px">Assign permissions by <b>security group</b> (role) and refine at the <b>individual user</b> level with allow / deny overrides.</p>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>User</th><th>Role</th><th>Team</th><th>Security groups</th><th>Effective perms</th><th>Access</th><th>Status</th></tr></thead>
+      <tbody>${users.length ? users.map((u) => `
+        <tr class="clickable" data-usr="${u.id}">
+          <td class="cell-strong">${escHtml(u.name)}<div class="cell-sub">${escHtml(u.email || '—')}</div></td>
+          <td>${escHtml(u.role || '—')}</td>
+          <td class="cell-sub">${escHtml(u.team || '—')}</td>
+          <td>${(u.groups || []).map((g) => badge(escHtml(g.name), 'b-blue')).join(' ') || '<span class="cell-sub">none</span>'}</td>
+          <td class="cell-sub">${u.effectivePermissions.includes('*') ? 'All (*)' : u.effectivePermissions.length}${(u.permissionOverrides.allow || []).length || (u.permissionOverrides.deny || []).length ? ` <span class="badge b-amber">override</span>` : ''}</td>
+          <td>${u.isAdmin ? badge('Admin', 'b-red') : badge('Standard', 'b-slate')}</td>
+          <td>${u.active ? badge('Active', 'b-green') : badge('Disabled', 'b-slate')}</td>
+        </tr>`).join('') : `<tr><td colspan="7"><div class="empty">No users.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(users.map((u) => [u.id, u]));
+  host.querySelectorAll('[data-usr]').forEach((tr) => tr.onclick = () => openUserDrawer(map[tr.dataset.usr]));
+}
+
+function openUserModal() {
+  const s = opSelects();
+  openModal(`
+    <div class="modal__head">New user</div>
+    <div class="modal__body">
+      <div class="form-row">
+        <label class="field"><span>Name</span><input id="u-name" placeholder="e.g. Jordan Lee" /></label>
+        <label class="field"><span>Role / title</span><input id="u-role" placeholder="e.g. CS Agent" /></label>
+        <label class="field"><span>Team</span><input id="u-team" placeholder="e.g. Customer Service" /></label>
+        <label class="field"><span>Email</span><input id="u-email" type="email" /></label>
+      </div>
+      <label class="field"><span>Security groups</span>
+        <div class="checklist" id="u-groups"></div>
+      </label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createUsr">Create</button></div>`);
+  api.securityGroups().then((groups) => {
+    modalHost.querySelector('#u-groups').innerHTML = groups.map((g) =>
+      `<label class="chk"><input type="checkbox" value="${g.id}" /> ${escHtml(g.name)} <span class="cell-sub">— ${escHtml(g.description || '')}</span></label>`).join('');
+  });
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createUsr').onclick = async () => {
+    const groupIds = [...modalHost.querySelectorAll('#u-groups input:checked')].map((i) => i.value);
+    await api.createUser({ name: val('u-name'), role: val('u-role'), team: val('u-team'), email: val('u-email'), groupIds });
+    closeModal(); toast('User created', '', 'success'); router();
+  };
+}
+
+async function openUserDrawer(u) {
+  if (!u) return;
+  const [perms, groups] = await Promise.all([api.permissions(), api.securityGroups()]);
+  const groupById = Object.fromEntries(groups.map((g) => [g.id, g]));
+  const overrides = u.permissionOverrides || { allow: [], deny: [] };
+
+  // Compute what the user's *groups* grant (for the "inherited" hint).
+  function groupGrantsFor(groupIds) {
+    const set = new Set();
+    for (const id of groupIds) for (const p of (groupById[id]?.permissions || [])) set.add(p);
+    return set;
+  }
+  const grants = (set, perm) => set.has('*') || set.has(perm) || set.has(perm.split('.')[0] + '.*');
+
+  const permRows = perms.modules.map((mod) => {
+    const list = perms.permissions.filter((p) => p.module === mod.key);
+    if (!list.length) return '';
+    return `<div class="perm-mod"><div class="perm-mod__h">${escHtml(mod.label)}</div>
+      ${list.map((p) => {
+        const cur = overrides.allow?.includes(p.key) ? 'allow' : overrides.deny?.includes(p.key) ? 'deny' : 'inherit';
+        return `<div class="perm-row" data-perm="${p.key}">
+          <div class="perm-row__label">${escHtml(p.label)} <code class="perm-key">${p.key}</code>
+            <span class="perm-inh" data-inh="${p.key}"></span></div>
+          <div class="seg">
+            <label class="seg__opt"><input type="radio" name="ov-${p.key}" value="inherit" ${cur === 'inherit' ? 'checked' : ''}/>Inherit</label>
+            <label class="seg__opt seg__opt--allow"><input type="radio" name="ov-${p.key}" value="allow" ${cur === 'allow' ? 'checked' : ''}/>Allow</label>
+            <label class="seg__opt seg__opt--deny"><input type="radio" name="ov-${p.key}" value="deny" ${cur === 'deny' ? 'checked' : ''}/>Deny</label>
+          </div></div>`;
+      }).join('')}</div>`;
+  }).join('');
+
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${u.id} · ${u.isAdmin ? badge('Admin', 'b-red') : badge('Standard', 'b-slate')}</div>
+      <div class="drawer__title">${escHtml(u.name)}</div>
+      <div class="chips" style="margin-top:10px">${(u.groups || []).map((g) => badge(escHtml(g.name), 'b-blue')).join(' ')}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section"><h4>Details</h4>
+        <div class="form-row">
+          <label class="field"><span>Name</span><input id="d-name" value="${escAttr(u.name)}" /></label>
+          <label class="field"><span>Role / title</span><input id="d-role" value="${escAttr(u.role || '')}" /></label>
+          <label class="field"><span>Team</span><input id="d-team" value="${escAttr(u.team || '')}" /></label>
+          <label class="field"><span>Email</span><input id="d-email" value="${escAttr(u.email || '')}" /></label>
+          <label class="field"><span>Status</span><select id="d-active"><option value="true" ${u.active ? 'selected' : ''}>Active</option><option value="false" ${!u.active ? 'selected' : ''}>Disabled</option></select></label>
+        </div>
+      </div>
+      <div class="drawer__section"><h4>Security groups <span class="cell-sub">— role-based permissions</span></h4>
+        <div class="checklist" id="d-groups">
+          ${groups.map((g) => `<label class="chk"><input type="checkbox" value="${g.id}" ${(u.groupIds || []).includes(g.id) ? 'checked' : ''}/> ${escHtml(g.name)} <span class="cell-sub">— ${(g.permissions || []).includes('*') ? 'all access' : (g.permissions || []).length + ' perms'}</span></label>`).join('')}
+        </div>
+      </div>
+      <div class="drawer__section"><h4>User-level permission overrides</h4>
+        <p class="cell-sub" style="margin:0 0 10px">Each permission inherits from the groups above. Override individually to explicitly <b>Allow</b> or <b>Deny</b> for this user.</p>
+        <div class="perm-grid">${permRows}</div>
+      </div>
+      <div class="drawer__section"><h4>Effective permissions</h4>
+        <div class="chips" id="d-effective"></div>
+      </div>
+      <div class="drawer__foot"><button class="btn btn--primary" id="saveUsr">Save changes</button></div>
+    </div>`);
+
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+
+  // Recompute inherited hints + live effective set as groups/overrides change.
+  function recompute() {
+    const groupIds = [...drawer.querySelectorAll('#d-groups input:checked')].map((i) => i.value);
+    const gset = groupGrantsFor(groupIds);
+    const eff = new Set(gset);
+    drawer.querySelectorAll('.perm-row').forEach((row) => {
+      const key = row.dataset.perm;
+      const inherited = grants(gset, key);
+      row.querySelector(`[data-inh="${key}"]`).innerHTML = inherited ? '<span class="badge b-green">inherited</span>' : '';
+      const ov = drawer.querySelector(`input[name="ov-${key}"]:checked`)?.value || 'inherit';
+      if (ov === 'allow') eff.add(key);
+      else if (ov === 'deny') eff.delete(key);
+    });
+    const effBox = drawer.querySelector('#d-effective');
+    if (gset.has('*')) effBox.innerHTML = badge('All access (*)', 'b-red');
+    else {
+      const keys = [...eff].filter((k) => k !== '*').sort();
+      effBox.innerHTML = keys.length ? keys.map((k) => `<code class="perm-key">${k}</code>`).join(' ') : '<span class="cell-sub">No permissions.</span>';
+    }
+  }
+  drawer.querySelectorAll('#d-groups input, .perm-row input').forEach((i) => i.addEventListener('change', recompute));
+  recompute();
+
+  drawer.querySelector('#saveUsr').onclick = async () => {
+    const groupIds = [...drawer.querySelectorAll('#d-groups input:checked')].map((i) => i.value);
+    const allow = [], deny = [];
+    drawer.querySelectorAll('.perm-row').forEach((row) => {
+      const key = row.dataset.perm;
+      const ov = drawer.querySelector(`input[name="ov-${key}"]:checked`)?.value;
+      if (ov === 'allow') allow.push(key);
+      else if (ov === 'deny') deny.push(key);
+    });
+    await api.updateUser(u.id, {
+      name: val('d-name'), role: val('d-role'), team: val('d-team'), email: val('d-email'),
+      active: val('d-active') === 'true', groupIds, permissionOverrides: { allow, deny },
+    });
+    toast('User updated', u.id, 'success');
+    closeDrawer();
+    await loadUsers();                 // refresh switcher / acting perms
+    if (u.id === state.currentUser?.id) await setActingUser(u.id);
+    router();
+  };
+}
+
+// ---- Security groups ----
+async function renderSecurityGroups(host) {
+  document.getElementById('topbarActions').innerHTML = `<button class="btn btn--primary" id="newGrp">+ New security group</button>`;
+  document.getElementById('newGrp').onclick = () => openGroupModal();
+  const groups = await api.securityGroups();
+  host.innerHTML = `
+    <p class="cell-sub" style="margin:0 0 14px">Security groups bundle permissions into reusable roles. Assign them to users, then fine-tune per user.</p>
+    <div class="card table-wrap"><table class="data">
+      <thead><tr><th>Group</th><th>Description</th><th>Members</th><th>Permissions</th></tr></thead>
+      <tbody>${groups.length ? groups.map((g) => `
+        <tr class="clickable" data-grp="${g.id}">
+          <td class="cell-strong">${escHtml(g.name)}</td>
+          <td class="cell-sub">${escHtml(g.description || '—')}</td>
+          <td>${badge(g.memberCount + ' member' + (g.memberCount === 1 ? '' : 's'), 'b-slate')}</td>
+          <td>${(g.permissions || []).includes('*') ? badge('All access (*)', 'b-red') : badge(g.permissionCount + ' perms', 'b-blue')}</td>
+        </tr>`).join('') : `<tr><td colspan="4"><div class="empty">No security groups.</div></td></tr>`}
+      </tbody></table></div>`;
+  const map = Object.fromEntries(groups.map((g) => [g.id, g]));
+  host.querySelectorAll('[data-grp]').forEach((tr) => tr.onclick = () => openGroupDrawer(map[tr.dataset.grp]));
+}
+
+function openGroupModal() {
+  openModal(`
+    <div class="modal__head">New security group</div>
+    <div class="modal__body">
+      <label class="field"><span>Name</span><input id="g-name" placeholder="e.g. Customer Service" /></label>
+      <label class="field"><span>Description</span><input id="g-desc" placeholder="What this role can do" /></label>
+    </div>
+    <div class="modal__foot"><button class="btn" data-close>Cancel</button><button class="btn btn--primary" id="createGrp">Create</button></div>`);
+  modalHost.querySelector('[data-close]').onclick = closeModal;
+  modalHost.querySelector('#createGrp').onclick = async () => {
+    const g = await api.createSecurityGroup({ name: val('g-name'), description: val('g-desc'), permissions: [] });
+    closeModal(); toast('Security group created', '', 'success');
+    const full = await api.securityGroups();
+    openGroupDrawer(full.find((x) => x.id === g.id) || g);
+    router();
+  };
+}
+
+async function openGroupDrawer(g) {
+  if (!g) return;
+  const perms = await api.permissions();
+  const all = (g.permissions || []).includes('*');
+  const has = new Set(g.permissions || []);
+
+  const permRows = perms.modules.map((mod) => {
+    const list = perms.permissions.filter((p) => p.module === mod.key);
+    if (!list.length) return '';
+    return `<div class="perm-mod"><div class="perm-mod__h">${escHtml(mod.label)}</div>
+      ${list.map((p) => `<label class="chk"><input type="checkbox" class="g-perm" value="${p.key}" ${has.has(p.key) ? 'checked' : ''}/> ${escHtml(p.label)} <code class="perm-key">${p.key}</code></label>`).join('')}</div>`;
+  }).join('');
+
+  openDrawer(`
+    <div class="drawer__head"><button class="drawer__close" data-close>×</button>
+      <div class="drawer__eyebrow">${g.id}</div>
+      <div class="drawer__title">${escHtml(g.name)}</div>
+    </div>
+    <div class="drawer__body">
+      <div class="drawer__section">
+        <div class="form-row">
+          <label class="field"><span>Name</span><input id="g-name" value="${escAttr(g.name)}" /></label>
+          <label class="field"><span>Description</span><input id="g-desc" value="${escAttr(g.description || '')}" /></label>
+        </div>
+        <label class="chk chk--master"><input type="checkbox" id="g-all" ${all ? 'checked' : ''}/> <b>Full access</b> — grant every permission (<code class="perm-key">*</code>)</label>
+      </div>
+      <div class="drawer__section"><h4>Permissions</h4>
+        <div class="perm-grid" id="g-perms" ${all ? 'style="opacity:.4;pointer-events:none"' : ''}>${permRows}</div>
+      </div>
+      <div class="drawer__foot"><button class="btn btn--primary" id="saveGrp">Save changes</button></div>
+    </div>`);
+
+  drawer.querySelector('[data-close]').onclick = closeDrawer;
+  const allBox = drawer.querySelector('#g-all');
+  const permsBox = drawer.querySelector('#g-perms');
+  allBox.addEventListener('change', () => {
+    permsBox.style.opacity = allBox.checked ? '.4' : '';
+    permsBox.style.pointerEvents = allBox.checked ? 'none' : '';
+  });
+
+  drawer.querySelector('#saveGrp').onclick = async () => {
+    const permissions = allBox.checked ? ['*'] : [...drawer.querySelectorAll('.g-perm:checked')].map((i) => i.value);
+    await api.updateSecurityGroup(g.id, { name: val('g-name'), description: val('g-desc'), permissions });
+    toast('Security group updated', g.id, 'success');
+    closeDrawer();
+    await loadUsers();
+    if (state.currentUser) await setActingUser(state.currentUser.id);
+    router();
+  };
+}
+
+// ============================================================================
+// ACTING USER / PERMISSION GATING
+// ============================================================================
+async function loadUsers() {
+  try {
+    state.users = await api.users();
+  } catch { state.users = []; }
+  return state.users;
+}
+
+function populateUserSwitch() {
+  const sel = document.getElementById('userSwitch');
+  if (!sel) return;
+  sel.innerHTML = (state.users || []).map((u) =>
+    `<option value="${u.id}" ${u.id === state.currentUser?.id ? 'selected' : ''}>${escHtml(u.name)} — ${escHtml(u.role || '')}</option>`).join('');
+  sel.onchange = () => setActingUser(sel.value).then(() => router());
+}
+
+async function setActingUser(id) {
+  const u = (state.users || []).find((x) => x.id === id) || (state.users || [])[0];
+  if (!u) { state.perms = null; return; }
+  state.currentUser = u;
+  state.perms = new Set(u.effectivePermissions || []);
+  localStorage.setItem('actingUser', u.id);
+  const sel = document.getElementById('userSwitch');
+  if (sel && sel.value !== u.id) sel.value = u.id;
+  applyNavGating();
+}
+
+// Show/hide sidebar nav items and controls based on the acting user's perms.
+function applyNavGating() {
+  document.querySelectorAll('#nav a').forEach((a) => {
+    const perm = VIEW_PERM[a.dataset.view];
+    a.style.display = !perm || can(perm) ? '' : 'none';
+  });
+  const sim = document.getElementById('simulateBtn');
+  if (sim) sim.style.display = can('events.ingest') ? '' : 'none';
+}
+
+// Gate topbar create/manage buttons for the current view by button id.
+const BTN_PERM = {
+  newCaseBtn: 'cases.manage', newQuoteBtn: 'sales.manage', newDealBtn: 'sales.manage',
+  newAccBtn: 'accounts.manage', newCmp: 'marketing.manage', capSvy: 'surveys.capture',
+  newCarrierBtn: 'carriers.manage', newPrv: 'accountops.manage', newRisk: 'accountops.manage',
+  newReq: 'accountops.manage', newImp: 'accountops.manage', newClm: 'accountops.manage',
+  simEventTop: 'events.ingest', newUsr: 'admin.users', newGrp: 'admin.users',
+};
+function gateManageButtons() {
+  const bar = document.getElementById('topbarActions');
+  if (!bar) return;
+  for (const [id, perm] of Object.entries(BTN_PERM)) {
+    const btn = bar.querySelector('#' + id);
+    if (btn && !can(perm)) btn.remove();
+  }
+}
+
+// ============================================================================
 // Boot
 // ============================================================================
 const val = (id) => document.getElementById(id)?.value?.trim() || '';
@@ -2454,6 +2799,11 @@ setInterval(() => { if (!chat.open) refreshChatBadge(); }, 8000);
 
 (async function init() {
   state.meta = await api.meta();
+  await loadUsers();
+  const saved = localStorage.getItem('actingUser');
+  const admin = (state.users || []).find((u) => u.id === saved) || (state.users || []).find((u) => u.isAdmin) || (state.users || [])[0];
+  if (admin) await setActingUser(admin.id);
+  populateUserSwitch();
   if (!location.hash) location.hash = '#/dashboard';
   await router();
   refreshChatBadge();

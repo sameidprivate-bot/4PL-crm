@@ -21,14 +21,31 @@ function hoursAgo(n) {
 export function seed() {
   db.reset();
 
-  // --- Team: CS, account management & sales ---------------------------------
+  // --- Security groups (roles) — permissions set at the group level ---------
+  const securityGroups = [
+    { id: 'SG-1', name: 'Administrator', description: 'Full access to every module and to user administration.', permissions: ['*'] },
+    { id: 'SG-2', name: 'Customer Service', description: 'CS desk: cases, live chat, efmAPP feed and shipment visibility.', permissions: ['dashboard.view', 'cases.*', 'chat.*', 'events.view', 'events.ingest', 'shipments.view', 'accounts.view', 'surveys.capture'] },
+    { id: 'SG-3', name: 'Sales', description: 'Pipeline, quotes and marketing visibility.', permissions: ['dashboard.view', 'sales.*', 'marketing.view', 'accounts.view', 'carriers.view'] },
+    { id: 'SG-4', name: 'Account Management', description: 'Accounts, account operations and customer experience.', permissions: ['dashboard.view', 'accounts.*', 'accountops.*', 'surveys.*', 'cases.view', 'shipments.view'] },
+    { id: 'SG-5', name: 'Marketing', description: 'Campaigns and NPS/CSAT.', permissions: ['dashboard.view', 'marketing.*', 'surveys.view', 'accounts.view'] },
+    { id: 'SG-6', name: 'Read-only', description: 'View-only access across the system.', permissions: ['dashboard.view', 'cases.view', 'sales.view', 'marketing.view', 'carriers.view', 'accounts.view', 'accountops.view', 'shipments.view', 'events.view', 'chat.view', 'surveys.view'] },
+  ];
+  securityGroups.forEach((g) => db.insert('securityGroups', { ...g, createdAt: daysAgo(200), updatedAt: daysAgo(30) }));
+
+  // --- Users — each in a security group; some with user-level overrides ------
+  const noOverride = () => ({ allow: [], deny: [] });
   const agents = [
-    { id: 'AGT-1', name: 'Priya Nair', role: 'CS Agent', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
-    { id: 'AGT-2', name: 'Marcus Webb', role: 'CS Agent', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
-    { id: 'AGT-3', name: 'Sofia Almeida', role: 'CS Team Lead', team: 'Customer Service', brands: ['4PL', '3PL', 'Global'], active: true },
-    { id: 'AGT-4', name: 'Daniel Cho', role: 'Account Manager', team: 'Accounts', brands: ['4PL', '3PL', 'Global'], active: true },
-    { id: 'AGT-5', name: 'Hannah Reyes', role: 'Sales Executive', team: 'Sales', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 900000 },
-    { id: 'AGT-6', name: 'Jack Thompson', role: 'Business Development', team: 'Sales', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 650000 },
+    { id: 'AGT-1', name: 'Priya Nair', role: 'CS Agent', team: 'Customer Service', email: 'priya.nair@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-2'], permissionOverrides: noOverride() },
+    { id: 'AGT-2', name: 'Marcus Webb', role: 'CS Agent', team: 'Customer Service', email: 'marcus.webb@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-2'], permissionOverrides: noOverride() },
+    // Team lead: CS group + a user-level grant of accountops visibility.
+    { id: 'AGT-3', name: 'Sofia Almeida', role: 'CS Team Lead', team: 'Customer Service', email: 'sofia.almeida@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-2'], permissionOverrides: { allow: ['accountops.view', 'sales.view'], deny: [] } },
+    // Account manager: account-management group + user-level grant of marketing view.
+    { id: 'AGT-4', name: 'Daniel Cho', role: 'Account Manager', team: 'Accounts', email: 'daniel.cho@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-4'], permissionOverrides: { allow: ['marketing.view'], deny: [] } },
+    { id: 'AGT-5', name: 'Hannah Reyes', role: 'Sales Executive', team: 'Sales', email: 'hannah.reyes@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 900000, groupIds: ['SG-3'], permissionOverrides: noOverride() },
+    // BD in Sales, but a user-level DENY removes carrier visibility inherited from the group.
+    { id: 'AGT-6', name: 'Jack Thompson', role: 'Business Development', team: 'Sales', email: 'jack.thompson@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, salesTarget: 650000, groupIds: ['SG-3'], permissionOverrides: { allow: [], deny: ['carriers.view'] } },
+    { id: 'AGT-7', name: 'Alex Morgan', role: 'System Administrator', team: 'IT', email: 'alex.morgan@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-1'], permissionOverrides: noOverride() },
+    { id: 'AGT-8', name: 'Chloe Baker', role: 'Marketing Manager', team: 'Marketing', email: 'chloe.baker@moveit.example', brands: ['4PL', '3PL', 'Global'], active: true, groupIds: ['SG-5'], permissionOverrides: noOverride() },
   ];
   agents.forEach((a) => db.insert('agents', a));
 
@@ -430,6 +447,7 @@ export function seed() {
     chatMessages: { prefix: 'MSG', start: 1 },
     campaigns: { prefix: 'CMP', start: 1 },
     surveys: { prefix: 'SVY', start: 1 },
+    securityGroups: { prefix: 'SG', start: 1 },
   });
 
   // --- Replay a burst of efmAPP events (exercise carrier-linked auto-cases) --
@@ -464,6 +482,7 @@ export function seed() {
     chatSessions: db.collection('chatSessions').length,
     campaigns: db.collection('campaigns').length,
     surveys: db.collection('surveys').length,
+    securityGroups: db.collection('securityGroups').length,
   };
 }
 

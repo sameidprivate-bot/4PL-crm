@@ -34,6 +34,7 @@ const COLLECTIONS = [
   'chatMessages',
   'campaigns',
   'surveys',
+  'securityGroups',
 ];
 
 function emptyState() {

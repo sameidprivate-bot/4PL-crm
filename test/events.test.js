@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import { db } from '../server/db.js';
 import { ingestEvent } from '../server/events.js';
-import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals, implementationChecklist, surveySummary, npsCategory, SERVICE_LINES } from '../server/domain.js';
+import { isExceptionStatus, slaDueDate, SLA_HOURS, emptyBlueSheet, responsibilityForCategory, quoteTotals, implementationChecklist, surveySummary, npsCategory, SERVICE_LINES, effectivePermissionSet, setGrants } from '../server/domain.js';
 
 // Build an isolated in-memory dataset for each test run.
 function bootstrap() {
@@ -184,4 +184,36 @@ test('empty Blue Sheet has the full Strategic Selling shape', () => {
     assert.ok(Array.isArray(bs[k]), `${k} is an array`);
   }
   assert.equal(bs.sso, '');
+});
+
+// ---- RBAC: effective-permission computation ---------------------------------
+test('effectivePermissionSet unions group permissions', () => {
+  const groups = [{ permissions: ['cases.view', 'cases.manage'] }, { permissions: ['sales.view'] }];
+  const set = effectivePermissionSet(groups, {});
+  assert.ok(set.has('cases.view') && set.has('cases.manage') && set.has('sales.view'));
+});
+
+test('user-level allow adds a permission beyond the groups', () => {
+  const groups = [{ permissions: ['cases.view'] }];
+  const set = effectivePermissionSet(groups, { allow: ['accountops.view'], deny: [] });
+  assert.ok(set.has('accountops.view'));
+});
+
+test('user-level deny removes a group-granted permission', () => {
+  const groups = [{ permissions: ['carriers.view', 'cases.view'] }];
+  const set = effectivePermissionSet(groups, { allow: [], deny: ['carriers.view'] });
+  assert.ok(!set.has('carriers.view'));
+  assert.ok(set.has('cases.view'));
+});
+
+test('deny wins over an allow for the same key', () => {
+  const set = effectivePermissionSet([], { allow: ['cases.manage'], deny: ['cases.manage'] });
+  assert.ok(!set.has('cases.manage'));
+});
+
+test('setGrants honours the global and module wildcards', () => {
+  assert.ok(setGrants(new Set(['*']), 'admin.users'));
+  assert.ok(setGrants(new Set(['cases.*']), 'cases.manage'));
+  assert.ok(!setGrants(new Set(['cases.*']), 'sales.view'));
+  assert.ok(setGrants(new Set(['sales.view']), 'sales.view'));
 });

@@ -246,6 +246,73 @@ export function implementationChecklist(type) {
   return (base[type] || ['Scope', 'Execute', 'Verify']).map((task, i) => ({ id: `CL-${i + 1}`, task, done: false }));
 }
 
+// --- Access control: permissions & security groups --------------------------
+// Modules the app is organised into for permission purposes.
+export const PERMISSION_MODULES = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'cases', label: 'Cases' },
+  { key: 'sales', label: 'Sales' },
+  { key: 'marketing', label: 'Marketing & CX' },
+  { key: 'carriers', label: 'Carriers' },
+  { key: 'accounts', label: 'Accounts' },
+  { key: 'accountops', label: 'Account Ops' },
+  { key: 'shipments', label: 'Shipments' },
+  { key: 'events', label: 'efmAPP Feed' },
+  { key: 'chat', label: 'Live chat' },
+  { key: 'surveys', label: 'NPS & CSAT' },
+  { key: 'admin', label: 'Administration' },
+];
+
+// The full permission catalog. `.view` gates access to a module; `.manage`
+// gates create/edit within it. A group may also hold a module wildcard
+// (e.g. "cases.*") or the global wildcard "*".
+export const PERMISSIONS = [
+  { key: 'dashboard.view', module: 'dashboard', label: 'View dashboard' },
+  { key: 'cases.view', module: 'cases', label: 'View cases' },
+  { key: 'cases.manage', module: 'cases', label: 'Create & edit cases' },
+  { key: 'sales.view', module: 'sales', label: 'View sales' },
+  { key: 'sales.manage', module: 'sales', label: 'Manage deals & quotes' },
+  { key: 'marketing.view', module: 'marketing', label: 'View marketing & CX' },
+  { key: 'marketing.manage', module: 'marketing', label: 'Manage campaigns' },
+  { key: 'carriers.view', module: 'carriers', label: 'View carriers' },
+  { key: 'carriers.manage', module: 'carriers', label: 'Manage carriers' },
+  { key: 'accounts.view', module: 'accounts', label: 'View accounts' },
+  { key: 'accounts.manage', module: 'accounts', label: 'Manage accounts' },
+  { key: 'accountops.view', module: 'accountops', label: 'View account ops' },
+  { key: 'accountops.manage', module: 'accountops', label: 'Manage account ops' },
+  { key: 'shipments.view', module: 'shipments', label: 'View shipments' },
+  { key: 'events.view', module: 'events', label: 'View efmAPP feed' },
+  { key: 'events.ingest', module: 'events', label: 'Ingest / simulate events' },
+  { key: 'chat.view', module: 'chat', label: 'View live chat' },
+  { key: 'chat.manage', module: 'chat', label: 'Reply & raise cases from chat' },
+  { key: 'surveys.view', module: 'surveys', label: 'View NPS & CSAT' },
+  { key: 'surveys.capture', module: 'surveys', label: 'Capture survey responses' },
+  { key: 'admin.users', module: 'admin', label: 'Manage users & security groups' },
+  { key: 'admin.settings', module: 'admin', label: 'Manage system settings' },
+];
+
+export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
+
+// Resolve a user's group permissions + user-level overrides into an effective set.
+// groups: array of security-group objects; overrides: { allow:[], deny:[] }.
+export function effectivePermissionSet(groups = [], overrides = {}) {
+  const set = new Set();
+  for (const g of groups) {
+    for (const p of g.permissions || []) set.add(p);
+  }
+  for (const p of overrides.allow || []) set.add(p);
+  for (const p of overrides.deny || []) set.delete(p);
+  return set;
+}
+
+// Does an effective set grant a permission (honouring "*" and "module.*")?
+export function setGrants(set, perm) {
+  if (set.has('*')) return true;
+  if (set.has(perm)) return true;
+  const mod = perm.split('.')[0];
+  return set.has(`${mod}.*`);
+}
+
 // --- Marketing ---------------------------------------------------------------
 export const CAMPAIGN_TYPES = ['email', 'event', 'webinar', 'content', 'social', 'paid-ads', 'account-based', 'partner'];
 export const CAMPAIGN_STATUSES = ['planned', 'active', 'paused', 'completed'];

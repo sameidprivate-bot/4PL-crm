@@ -98,4 +98,13 @@ export const api = {
 
   events: (q) => req('GET', '/events' + qs(q)),
   sendEvent: (b) => req('POST', '/events/efmapp', b),
+
+  permissions: () => req('GET', '/permissions'),
+  securityGroups: () => req('GET', '/security-groups'),
+  createSecurityGroup: (b) => req('POST', '/security-groups', b),
+  updateSecurityGroup: (id, b) => req('PATCH', `/security-groups/${id}`, b),
+  users: () => req('GET', '/users'),
+  user: (id) => req('GET', `/users/${id}`),
+  createUser: (b) => req('POST', '/users', b),
+  updateUser: (id, b) => req('PATCH', `/users/${id}`, b),
 };

@@ -57,6 +57,11 @@ import {
   CAMPAIGN_STATUSES,
   SURVEY_TYPES,
   SURVEY_CHANNELS,
+  PERMISSIONS,
+  PERMISSION_MODULES,
+  PERMISSION_KEYS,
+  effectivePermissionSet,
+  setGrants,
   campaignMetrics,
   npsCategory,
   surveySummary,
@@ -97,6 +102,7 @@ db.syncCounters({
   chatMessages: { prefix: 'MSG', start: 1 },
   campaigns: { prefix: 'CMP', start: 1 },
   surveys: { prefix: 'SVY', start: 1 },
+  securityGroups: { prefix: 'SG', start: 1 },
 });
 if (db.collection('accounts').length === 0) {
   console.log('[boot] empty database — seeding demo data');
@@ -169,6 +175,10 @@ api.get('/meta', (_req, res) => {
     campaignStatuses: CAMPAIGN_STATUSES,
     surveyTypes: SURVEY_TYPES,
     surveyChannels: SURVEY_CHANNELS,
+    permissions: PERMISSIONS,
+    permissionModules: PERMISSION_MODULES,
+    securityGroups: db.collection('securityGroups').map((g) => ({ id: g.id, name: g.name })),
+    users: db.collection('agents').map((a) => ({ id: a.id, name: a.name, role: a.role })),
     agents: db.collection('agents'),
     carriers: db.collection('carriers').map((c) => ({ id: c.id, name: c.name, code: c.code })),
     accountsLite: db.collection('accounts').map((a) => ({ id: a.id, name: a.name, brand: a.brand })),
@@ -1585,6 +1595,104 @@ api.get('/events', (req, res) => {
   rows.sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt));
   res.json(rows.slice(0, Number(limit) || 50));
 });
+
+// ============================================================================
+// ACCESS CONTROL — permissions, security groups & users
+// ============================================================================
+function userGroups(user) {
+  return (user.groupIds || []).map((id) => db.getById('securityGroups', id)).filter(Boolean);
+}
+function userEffective(user) {
+  return effectivePermissionSet(userGroups(user), user.permissionOverrides || {});
+}
+function decorateUser(u) {
+  const groups = userGroups(u);
+  const eff = effectivePermissionSet(groups, u.permissionOverrides || {});
+  return {
+    ...u,
+    groups: groups.map((g) => ({ id: g.id, name: g.name })),
+    permissionOverrides: u.permissionOverrides || { allow: [], deny: [] },
+    effectivePermissions: [...eff].sort(),
+    isAdmin: setGrants(eff, 'admin.users'),
+  };
+}
+
+api.get('/permissions', (_req, res) => {
+  res.json({ permissions: PERMISSIONS, modules: PERMISSION_MODULES });
+});
+
+api.get('/security-groups', (_req, res) => {
+  const rows = db.collection('securityGroups').map((g) => ({
+    ...g,
+    memberCount: db.filter('agents', (a) => (a.groupIds || []).includes(g.id)).length,
+    permissionCount: (g.permissions || []).includes('*') ? PERMISSION_KEYS.length : (g.permissions || []).length,
+  }));
+  res.json(rows);
+});
+
+api.post('/security-groups', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.name) throw new ValidationError('name is required');
+  const now = new Date().toISOString();
+  const g = {
+    id: db.nextId('SG'),
+    name: b.name,
+    description: b.description || '',
+    permissions: Array.isArray(b.permissions) ? b.permissions : [],
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('securityGroups', g);
+  res.status(201).json(g);
+}));
+
+api.patch('/security-groups/:id', asyncH((req, res) => {
+  const b = req.body || {};
+  if (b.permissions && !Array.isArray(b.permissions)) throw new ValidationError('permissions must be an array');
+  const updated = db.update('securityGroups', req.params.id, b);
+  if (!updated) return res.status(404).json({ error: 'Security group not found' });
+  res.json(updated);
+}));
+
+api.get('/users', (_req, res) => {
+  res.json(db.collection('agents').map(decorateUser));
+});
+
+api.get('/users/:id', (req, res) => {
+  const u = db.getById('agents', req.params.id);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  res.json(decorateUser(u));
+});
+
+api.post('/users', asyncH((req, res) => {
+  const b = req.body || {};
+  if (!b.name) throw new ValidationError('name is required');
+  const now = new Date().toISOString();
+  const u = {
+    id: db.nextId('AGT'),
+    name: b.name,
+    role: b.role || 'User',
+    team: b.team || '',
+    email: b.email || '',
+    brands: b.brands || ['4PL', '3PL', 'Global'],
+    active: b.active !== false,
+    groupIds: b.groupIds || [],
+    permissionOverrides: b.permissionOverrides || { allow: [], deny: [] },
+    createdAt: now, updatedAt: now,
+  };
+  db.insert('agents', u);
+  res.status(201).json(decorateUser(u));
+}));
+
+api.patch('/users/:id', asyncH((req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  for (const k of ['name', 'role', 'team', 'email', 'active', 'groupIds', 'permissionOverrides', 'brands']) {
+    if (b[k] !== undefined) patch[k] = b[k];
+  }
+  const updated = db.update('agents', req.params.id, patch);
+  if (!updated) return res.status(404).json({ error: 'User not found' });
+  res.json(decorateUser(updated));
+}));
 
 // --- Admin: reseed (handy for demos) ----------------------------------------
 api.post('/admin/reseed', asyncH((_req, res) => {
